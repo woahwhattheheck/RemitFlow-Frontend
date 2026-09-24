@@ -43,6 +43,7 @@ describe('Offline and reconnect state for transfer mutations', () => {
     });
     window.history.pushState({}, '', '/send');
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {

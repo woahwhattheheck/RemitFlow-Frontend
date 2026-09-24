@@ -1,13 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
 import * as api from '../../src/services/api.js';
 import {
   fingerprintTransferPayload,
+  getLatestRecoverableOperation,
   idempotencyKeyFor,
   saveTransferOperation,
 } from '../../src/utils/transferIntent.js';
+
+async function fillValidForm(user, amount = '25') {
+  await user.type(
+    await screen.findByLabelText(/recipient/i),
+    'amina@example.com',
+  );
+  await user.type(screen.getByLabelText(/^amount$/i), amount);
+}
 
 describe('SendMoney duplicate-submission guard', () => {
   beforeEach(() => {
@@ -17,15 +26,16 @@ describe('SendMoney duplicate-submission guard', () => {
     vi.restoreAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
+
   it('double-confirm with the same payload creates only one transfer', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.type(
-      await screen.findByLabelText(/recipient/i),
-      'amina@example.com',
-    );
-    await user.type(screen.getByLabelText(/^amount$/i), '25');
+    await fillValidForm(user);
     await user.click(screen.getByRole('button', { name: /review & send/i }));
     const dialog = await screen.findByRole('dialog', {
       name: /confirm your transfer/i,
@@ -36,7 +46,10 @@ describe('SendMoney duplicate-submission guard', () => {
 
     // Rapid double activation of Confirm; submissionLock + idempotency key
     // must keep a single persisted record.
-    await Promise.all([user.click(confirm), user.click(confirm)]);
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
 
     await screen.findByRole(
       'dialog',
@@ -60,9 +73,9 @@ describe('SendMoney duplicate-submission guard', () => {
       from: 'USD',
       to: 'NGN',
       sendAmount: 25,
-      receiveAmount: 36827.5,
+      receiveAmount: 36642.38,
       fee: 0.25,
-      rate: 1473.1,
+      rate: 1480.5,
     };
     const fingerprint = fingerprintTransferPayload(payload);
     const idempotencyKey = await idempotencyKeyFor(fingerprint);
@@ -71,17 +84,87 @@ describe('SendMoney duplicate-submission guard', () => {
       idempotencyKey,
       fingerprint,
       transferId: prior.id,
-      status: 'pending',
+      status: 'succeeded',
     });
 
     const spy = vi.spyOn(api, 'createTransfer');
     render(<App />);
     await screen.findByRole('heading', { name: /send money/i });
+
+    // Reconcile restores the success dialog from the safe operation reference.
+    expect(
+      await screen.findByRole('dialog', { name: /transfer submitted/i }),
+    ).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
     const listed = await api.listTransfers();
-    expect(listed.filter((t) => t.idempotencyKey === idempotencyKey)).toHaveLength(
-      1,
+    expect(
+      listed.filter((t) => t.idempotencyKey === idempotencyKey),
+    ).toHaveLength(1);
+  });
+
+  it('timeout retry with the same intent reuses the idempotency key', async () => {
+    const payload = {
+      recipient: 'amina@example.com',
+      from: 'USD',
+      to: 'NGN',
+      sendAmount: 40,
+      receiveAmount: 50000,
+      fee: 0.4,
+      rate: 1480.5,
+      idempotencyKey: 'idem_timeout_reuse',
+    };
+    const first = await api.createTransfer(payload);
+    // Simulate a client timeout after the server accepted: replay same key.
+    const replay = await api.createTransfer(payload);
+    expect(replay.id).toBe(first.id);
+    const listed = await api.listTransfers();
+    expect(
+      listed.filter((t) => t.idempotencyKey === 'idem_timeout_reuse'),
+    ).toHaveLength(1);
+  });
+
+  it('navigation away and back restores the succeeded intent without a second create', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'createTransfer');
+    render(<App />);
+
+    await fillValidForm(user, '30');
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const dialog = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    await user.click(
+      within(dialog).getByRole('button', { name: /confirm transfer/i }),
     );
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
+
+    const callsAfterSubmit = spy.mock.calls.length;
+    expect(callsAfterSubmit).toBeGreaterThanOrEqual(1);
+    expect(getLatestRecoverableOperation()?.status).toBe('succeeded');
+
+    // Navigate to Transfers then back to Send — reconcile must not re-create.
+    await user.click(screen.getByRole('button', { name: /view transfers/i }));
+    await screen.findByRole(
+      'heading',
+      { name: /your transfers/i },
+      {
+        timeout: 5000,
+      },
+    );
+    const sendLinks = screen.getAllByRole('link', { name: /send money/i });
+    await user.click(sendLinks[0]);
+    await screen.findByRole('heading', { name: /send money/i });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('dialog', { name: /transfer submitted/i }),
+      ).toBeInTheDocument();
+    });
+    expect(spy).toHaveBeenCalledTimes(callsAfterSubmit);
   });
 
   it('edited payload after a prior intent uses a new idempotency key', async () => {

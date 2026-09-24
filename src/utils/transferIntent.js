@@ -9,13 +9,17 @@
 
 const OPS_KEY = 'remitflow.transferOps';
 
+/** @typedef {'submitting'|'unknown'|'succeeded'|'failed'|'dismissed'} OpStatus */
+
 /**
  * Canonical fingerprint of the transferable payload fields.
  * @param {{recipient:string,from:string,to:string,sendAmount:number|string,receiveAmount:number|string,fee?:number|string,rate?:number|string}} payload
  */
 export function fingerprintTransferPayload(payload) {
   const parts = [
-    String(payload.recipient ?? '').trim().toLowerCase(),
+    String(payload.recipient ?? '')
+      .trim()
+      .toLowerCase(),
     String(payload.from ?? '').toUpperCase(),
     String(payload.to ?? '').toUpperCase(),
     normalizeAmount(payload.sendAmount),
@@ -80,7 +84,7 @@ function writeOps(ops) {
 
 /**
  * Persist a safe operation reference for navigation/refresh recovery.
- * @param {{idempotencyKey:string,fingerprint:string,transferId?:string,status:string}} op
+ * @param {{idempotencyKey:string,fingerprint:string,transferId?:string|null,status:OpStatus}} op
  */
 export function saveTransferOperation(op) {
   if (!op?.idempotencyKey) return;
@@ -101,13 +105,18 @@ export function getTransferOperation(idempotencyKey) {
   return readOps()[idempotencyKey] ?? null;
 }
 
-/** Latest non-terminal in-flight op, if any. */
-export function getLatestInFlightOperation() {
+/**
+ * Latest recoverable intent: in-flight, unknown outcome, or succeeded but not
+ * yet dismissed. Used after navigation/refresh to restore status without
+ * minting a second transfer.
+ */
+export function getLatestRecoverableOperation() {
+  const recoverable = new Set(['submitting', 'unknown', 'succeeded']);
   const ops = Object.values(readOps());
-  const inflight = ops
-    .filter((op) => op && (op.status === 'submitting' || op.status === 'pending'))
+  const matches = ops
+    .filter((op) => op && recoverable.has(op.status))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  return inflight[0] ?? null;
+  return matches[0] ?? null;
 }
 
 export function clearTransferOperation(idempotencyKey) {

@@ -106,6 +106,10 @@ export function listTransfers() {
   });
 }
 
+// In-flight create promises keyed by idempotency key so concurrent retries
+// (double-click, timeout replay) share one insert instead of racing two writes.
+const pendingCreates = new Map();
+
 /**
  * Create a new transfer record.
  *
@@ -113,23 +117,35 @@ export function listTransfers() {
  * payload fails at submission with an actionable diff instead of writing a
  * record that later renders as a plausible-looking wrong number.
  *
+ * When `idempotencyKey` is present, a repeated or concurrent create with the
+ * same key returns the prior transfer instead of inserting a duplicate.
+ *
  * @param {object} payload - transfer details
  * @returns {Promise<object>} the created transfer
  */
 export function createTransfer(payload) {
-  return new Promise((resolve, reject) => {
+  const { idempotencyKey, ...fields } = payload ?? {};
+
+  if (idempotencyKey && pendingCreates.has(idempotencyKey)) {
+    return pendingCreates.get(idempotencyKey);
+  }
+
+  const createPromise = new Promise((resolve, reject) => {
     setTimeout(() => {
       try {
-        const { idempotencyKey, ...fields } = payload ?? {};
         const existing = read();
         const transfers = Array.isArray(existing) ? existing : [];
 
         // Same idempotency key + same logical intent → return the prior record
         // instead of inserting a duplicate transfer.
         if (idempotencyKey) {
-          const prior = transfers.find((t) => t.idempotencyKey === idempotencyKey);
+          const prior = transfers.find(
+            (t) => t.idempotencyKey === idempotencyKey,
+          );
           if (prior) {
-            resolve(parseTransfer(prior, { source: 'createTransfer.idempotent' }));
+            resolve(
+              parseTransfer(prior, { source: 'createTransfer.idempotent' }),
+            );
             return;
           }
         }
@@ -151,5 +167,10 @@ export function createTransfer(payload) {
         reject(error);
       }
     }, 700);
+  }).finally(() => {
+    if (idempotencyKey) pendingCreates.delete(idempotencyKey);
   });
+
+  if (idempotencyKey) pendingCreates.set(idempotencyKey, createPromise);
+  return createPromise;
 }

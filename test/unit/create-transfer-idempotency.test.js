@@ -22,7 +22,31 @@ describe('createTransfer idempotency', () => {
     const second = await createTransfer(payload);
     expect(second.id).toBe(first.id);
     const all = await listTransfers();
-    expect(all.filter((t) => t.idempotencyKey === 'idem_test_repeat_1')).toHaveLength(1);
+    expect(
+      all.filter((t) => t.idempotencyKey === 'idem_test_repeat_1'),
+    ).toHaveLength(1);
+  });
+
+  it('dedupes concurrent creates that share an idempotency key', async () => {
+    const payload = {
+      recipient: 'amina@example.com',
+      from: 'USD',
+      to: 'NGN',
+      sendAmount: 50,
+      receiveAmount: 75000,
+      fee: 1,
+      rate: 1500,
+      idempotencyKey: 'idem_concurrent_1',
+    };
+    const [a, b] = await Promise.all([
+      createTransfer(payload),
+      createTransfer(payload),
+    ]);
+    expect(a.id).toBe(b.id);
+    const all = await listTransfers();
+    expect(
+      all.filter((t) => t.idempotencyKey === 'idem_concurrent_1'),
+    ).toHaveLength(1);
   });
 
   it('creates a new transfer when the idempotency key changes with the payload', async () => {

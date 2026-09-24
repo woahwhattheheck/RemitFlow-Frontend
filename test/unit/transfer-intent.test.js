@@ -4,7 +4,7 @@ import {
   idempotencyKeyFor,
   saveTransferOperation,
   getTransferOperation,
-  getLatestInFlightOperation,
+  getLatestRecoverableOperation,
   clearTransferOperation,
 } from '../../src/utils/transferIntent.js';
 
@@ -42,14 +42,14 @@ describe('transferIntent', () => {
       idempotencyKey: 'idem_abc',
       fingerprint: 'fp',
       transferId: 'tx_1',
-      status: 'pending',
+      status: 'submitting',
     });
     expect(getTransferOperation('idem_abc')).toMatchObject({
       idempotencyKey: 'idem_abc',
       transferId: 'tx_1',
-      status: 'pending',
+      status: 'submitting',
     });
-    expect(getLatestInFlightOperation()?.idempotencyKey).toBe('idem_abc');
+    expect(getLatestRecoverableOperation()?.idempotencyKey).toBe('idem_abc');
     clearTransferOperation('idem_abc');
     expect(getTransferOperation('idem_abc')).toBeNull();
   });
@@ -74,5 +74,21 @@ describe('transferIntent', () => {
       }),
     );
     expect(a).not.toEqual(b);
+  });
+
+  it('does not treat dismissed or failed ops as recoverable', () => {
+    saveTransferOperation({
+      idempotencyKey: 'idem_done',
+      fingerprint: 'fp',
+      transferId: 'tx_1',
+      status: 'dismissed',
+    });
+    expect(getLatestRecoverableOperation()).toBeNull();
+    saveTransferOperation({
+      idempotencyKey: 'idem_fail',
+      fingerprint: 'fp2',
+      status: 'failed',
+    });
+    expect(getLatestRecoverableOperation()).toBeNull();
   });
 });

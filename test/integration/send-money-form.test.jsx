@@ -61,6 +61,7 @@ describe('Send money form flows', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/send');
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {

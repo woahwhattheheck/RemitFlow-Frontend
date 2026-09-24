@@ -26,6 +26,7 @@ describe('Send flow — amount parsing regressions', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/send');
     localStorage.clear();
+    sessionStorage.clear();
     // The mock wallet service rejects 10% of connections at random. Pin it so
     // the send flow is deterministic without standing up a live provider.
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
