@@ -7,14 +7,19 @@ import Button from '../components/Button.jsx';
 import ErrorMessage from '../components/ErrorMessage.jsx';
 import Modal from '../components/Modal.jsx';
 import { buildQuote } from '../services/quote.js';
+import { isQuoteExpired } from '../services/contracts/quote.js';
 import { ContractViolationError } from '../services/contracts/schema.js';
 import { getUserErrorMessage, normalizeError } from '../services/errors.js';
 import { formatAmount, formatCurrencyInput, parseCurrencyInput } from '../utils/format.js';
 import {
-  isPositiveAmount,
   validateRecipient,
   isWithinBalance,
 } from '../utils/validate.js';
+import {
+  amountsReconcile,
+  assertQuoteSignable,
+  validateCurrencyPair,
+} from '../utils/quoteBinding.js';
 import { useWallet } from '../hooks/useWallet.js';
 import { useTransfers } from '../hooks/useTransfers.js';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.js';
@@ -32,6 +37,9 @@ import './SendMoney.css';
  * 2. "Confirm transfer" submits it; progress is announced via a live region.
  * 3. A result dialog confirms success (or an announced error returns focus to
  *    the form for retry). Dialogs trap focus and return it on close.
+ *
+ * Quotes carry an id bound into the transfer payload. Field or network changes
+ * invalidate a pending quote so an expired or mismatched price cannot be signed.
  */
 export default function SendMoney() {
   const navigate = useNavigate();
@@ -59,6 +67,7 @@ export default function SendMoney() {
   const [phase, setPhase] = useState(null);
   const [pendingQuote, setPendingQuote] = useState(null);
   const [submittedTransfer, setSubmittedTransfer] = useState(null);
+  const [quoteClock, setQuoteClock] = useState(() => Date.now());
   const submitButtonRef = useRef(null);
 
   // Debounce the amount so the quote isn't rebuilt on every keystroke.
@@ -66,6 +75,8 @@ export default function SendMoney() {
 
   // Recompute the quote whenever the (debounced) inputs change.
   const quote = useMemo(() => {
+    const corridor = validateCurrencyPair(from, to);
+    if (!corridor.ok) return null;
     const parsed = parseCurrencyInput(debouncedAmount, {
       currency: from,
       locale,
@@ -73,6 +84,25 @@ export default function SendMoney() {
     if (!parsed.ok) return null;
     return buildQuote(parsed.value, from, to);
   }, [debouncedAmount, from, locale, to]);
+
+  // Tick while a confirmation dialog is open so expiry UI stays honest.
+  useEffect(() => {
+    if (phase !== 'confirm' || !pendingQuote) return undefined;
+    const id = setInterval(() => setQuoteClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [phase, pendingQuote]);
+
+  // Field changes while confirming invalidate the pending quote — the user
+  // must review a fresh price bound to the live inputs.
+  useEffect(() => {
+    if (phase !== 'confirm' || !pendingQuote) return;
+    const live = assertQuoteSignable(pendingQuote, { amount, from, to }, Date.now());
+    if (!live.ok && live.code !== 'expired') {
+      setPendingQuote(null);
+      setPhase(null);
+      setSubmitError(live.reason);
+    }
+  }, [amount, from, to, phase, pendingQuote]);
 
   // Surface submission failures predictably: announce them and put keyboard
   // focus back on the submit control so a retry is one Enter away.
@@ -119,8 +149,9 @@ export default function SendMoney() {
     ) {
       next.amount = 'Amount exceeds your wallet balance.';
     }
-    if (from === to) {
-      next.to = 'Source and destination must differ.';
+    const corridor = validateCurrencyPair(from, to);
+    if (!corridor.ok) {
+      next.to = corridor.error;
     }
     applyErrors(next);
     return Object.keys(next).length === 0;
@@ -129,17 +160,53 @@ export default function SendMoney() {
   /**
    * Track connectivity transitions. When the browser comes back online we do
    * NOT blindly resubmit the form (that would duplicate the transfer) — we
-   * only clear the stale "offline" error state and inform the user.
+   * only clear the stale "offline" error state and inform the user. A pending
+   * confirmation quote is dropped: rates may have moved while offline.
    */
   useEffect(() => {
     const recovered = wasOffline.current && isOnline;
+    const dropped = !wasOffline.current && !isOnline;
     wasOffline.current = !isOnline;
+    if (dropped && phase === 'confirm') {
+      setPendingQuote(null);
+      setPhase(null);
+      setSubmitError(
+        "You're offline. The pending quote was cleared — reconnect and review again.",
+      );
+    }
     if (recovered) {
       setSubmitError(null);
       setJustReconnected(true);
       setTimeout(() => setJustReconnected(false), 4000);
     }
-  }, [isOnline]);
+  }, [isOnline, phase]);
+
+  function refreshPendingQuote() {
+    const parsedAmount = parseCurrencyInput(amount, { currency: from, locale });
+    if (!parsedAmount.ok) {
+      setSubmitError(parsedAmount.error);
+      setPendingQuote(null);
+      setPhase(null);
+      return;
+    }
+    const corridor = validateCurrencyPair(from, to);
+    if (!corridor.ok) {
+      setSubmitError(corridor.error);
+      setPendingQuote(null);
+      setPhase(null);
+      return;
+    }
+    const next = buildQuote(parsedAmount.value, from, to);
+    if (!next) {
+      setSubmitError('We could not refresh this quote. Check the amount and currencies.');
+      setPendingQuote(null);
+      setPhase(null);
+      return;
+    }
+    setPendingQuote(next);
+    setQuoteClock(Date.now());
+    setSubmitError(null);
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -171,7 +238,18 @@ export default function SendMoney() {
       return;
     }
 
+    const signable = assertQuoteSignable(
+      finalQuote,
+      { amount: parsedAmount.value, from, to },
+      Date.now(),
+    );
+    if (!signable.ok) {
+      setSubmitError(signable.reason);
+      return;
+    }
+
     setPendingQuote(finalQuote);
+    setQuoteClock(Date.now());
     setPhase('confirm');
   }
 
@@ -191,33 +269,49 @@ export default function SendMoney() {
         await connect();
       }
 
-      // Rebuild at confirmation time so the committed amounts match the note:
-      // rates are indicative and update at confirmation.
       const parsedAmount = parseCurrencyInput(amount, { currency: from, locale });
       if (!parsedAmount.ok) {
         setSubmitError(parsedAmount.error);
-        return;
-      }
-      const finalQuote = pendingQuote ?? buildQuote(parsedAmount.value, from, to);
-      if (!finalQuote) {
-        setSubmitError(
-          'We could not price this transfer. Check the amount and the selected currencies.',
-        );
+        setPendingQuote(null);
+        setPhase(null);
         return;
       }
 
-      // Record the fee, rate and expiry alongside the amounts so the receipt
-      // can reproduce exactly what was quoted rather than re-deriving it from
-      // a rate that may since have moved.
+      const liveInputs = { amount: parsedAmount.value, from, to };
+      const finalQuote = pendingQuote;
+      const signable = assertQuoteSignable(finalQuote, liveInputs, Date.now());
+      if (!signable.ok) {
+        // Expired quotes get an explicit refresh path; other mismatches close
+        // the dialog so the user reviews a newly priced quote.
+        setSubmitError(signable.reason);
+        if (signable.code === 'expired' && finalQuote) {
+          setQuoteClock(Date.now());
+          return;
+        }
+        setPendingQuote(null);
+        setPhase(null);
+        return;
+      }
+
+      if (!amountsReconcile(finalQuote, finalQuote)) {
+        setSubmitError('Displayed amounts do not match the quote payload.');
+        setPendingQuote(null);
+        setPhase(null);
+        return;
+      }
+
+      // Bind the quote id into the transfer so receipts can prove which price
+      // was confirmed. Amounts come from the bound quote, not a rebuild.
       const created = await addTransfer({
         recipient,
-        from,
-        to,
+        from: finalQuote.from,
+        to: finalQuote.to,
         sendAmount: finalQuote.sendAmount,
         receiveAmount: finalQuote.receiveAmount,
         fee: finalQuote.fee,
         rate: finalQuote.rate,
         expiresAt: finalQuote.expiresAt,
+        quoteId: finalQuote.id,
       });
       setSubmittedTransfer(created ?? finalQuote);
       setPendingQuote(null);
@@ -255,6 +349,10 @@ export default function SendMoney() {
   }
 
   const errorCount = Object.keys(errors).length;
+  const pendingExpired =
+    phase === 'confirm' && pendingQuote
+      ? isQuoteExpired(pendingQuote, quoteClock)
+      : false;
 
   return (
     <div className="send-money">
@@ -360,7 +458,7 @@ export default function SendMoney() {
 
         <div className="send-quote">
           {quote ? (
-            <QuoteCard quote={quote} locale={locale} />
+            <QuoteCard quote={quote} locale={locale} now={quoteClock} />
           ) : (
             <p className="send-quote-hint">
               Enter an amount to see your quote.
@@ -377,9 +475,18 @@ export default function SendMoney() {
               <dd>{recipient}</dd>
             </div>
           </dl>
-          <QuoteCard quote={pendingQuote} locale={locale} />
+          <QuoteCard
+            quote={pendingQuote}
+            locale={locale}
+            now={quoteClock}
+            onRefresh={refreshPendingQuote}
+          />
           <p className="send-submit-status" role="status" aria-live="polite">
-            {submitting ? 'Submitting your transfer…' : ''}
+            {submitting
+              ? 'Submitting your transfer…'
+              : pendingExpired
+                ? 'Quote expired — refresh before confirming.'
+                : ''}
           </p>
           <div className="send-dialog-actions">
             <Button
@@ -389,7 +496,10 @@ export default function SendMoney() {
             >
               Back
             </Button>
-            <Button onClick={handleConfirmTransfer} disabled={submitting}>
+            <Button
+              onClick={handleConfirmTransfer}
+              disabled={submitting || pendingExpired}
+            >
               {submitting ? 'Sending…' : 'Confirm transfer'}
             </Button>
           </div>
@@ -427,6 +537,12 @@ export default function SendMoney() {
                 )}
               </dd>
             </div>
+            {submittedTransfer.quoteId && (
+              <div className="send-dialog-line">
+                <dt>Quote</dt>
+                <dd className="send-quote-id">{submittedTransfer.quoteId}</dd>
+              </div>
+            )}
             <div className="send-dialog-line">
               <dt>Status</dt>
               <dd>{submittedTransfer.status}</dd>
