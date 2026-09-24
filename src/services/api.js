@@ -6,6 +6,7 @@
 // guess whether a field is present or whether an amount is really a number.
 
 import { ContractViolationError } from './contracts/schema.js';
+import { fingerprintTransferPayload } from '../utils/transferIntent.js';
 import {
   parseTransfer,
   parseTransferList,
@@ -109,6 +110,20 @@ export function listTransfers() {
 // In-flight create promises keyed by idempotency key so concurrent retries
 // (double-click, timeout replay) share one insert instead of racing two writes.
 const pendingCreates = new Map();
+let transferSequence = 0;
+
+function conflictingIdempotencyKey() {
+  return new ContractViolationError(
+    transferContract,
+    [{
+      path: 'idempotencyKey',
+      code: 'conflicting_payload',
+      expected: 'the original transfer details for this key',
+      received: 'different transfer details',
+    }],
+    { source: 'createTransfer' },
+  );
+}
 
 /**
  * Create a new transfer record.
@@ -125,9 +140,13 @@ const pendingCreates = new Map();
  */
 export function createTransfer(payload) {
   const { idempotencyKey, ...fields } = payload ?? {};
+  const fingerprint = idempotencyKey ? fingerprintTransferPayload(fields) : null;
 
   if (idempotencyKey && pendingCreates.has(idempotencyKey)) {
-    return pendingCreates.get(idempotencyKey);
+    const pending = pendingCreates.get(idempotencyKey);
+    return pending.fingerprint === fingerprint
+      ? pending.promise
+      : Promise.reject(conflictingIdempotencyKey());
   }
 
   const createPromise = new Promise((resolve, reject) => {
@@ -143,16 +162,18 @@ export function createTransfer(payload) {
             (t) => t.idempotencyKey === idempotencyKey,
           );
           if (prior) {
-            resolve(
-              parseTransfer(prior, { source: 'createTransfer.idempotent' }),
-            );
+            const parsedPrior = parseTransfer(prior, { source: 'createTransfer.idempotent' });
+            if (fingerprintTransferPayload(parsedPrior) !== fingerprint) {
+              throw conflictingIdempotencyKey();
+            }
+            resolve(parsedPrior);
             return;
           }
         }
 
         const transfer = parseTransfer(
           {
-            id: 'tx_' + Date.now(),
+            id: `tx_${Date.now()}_${++transferSequence}`,
             status: 'pending',
             createdAt: new Date().toISOString(),
             ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -171,6 +192,6 @@ export function createTransfer(payload) {
     if (idempotencyKey) pendingCreates.delete(idempotencyKey);
   });
 
-  if (idempotencyKey) pendingCreates.set(idempotencyKey, createPromise);
+  if (idempotencyKey) pendingCreates.set(idempotencyKey, { fingerprint, promise: createPromise });
   return createPromise;
 }

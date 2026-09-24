@@ -24,6 +24,7 @@ import { useTransfers } from '../hooks/useTransfers.js';
 import {
   fingerprintTransferPayload,
   idempotencyKeyFor,
+  newTransferIntentNonce,
   saveTransferOperation,
   getLatestRecoverableOperation,
 } from '../utils/transferIntent.js';
@@ -80,17 +81,18 @@ export default function SendMoney() {
     if (!recoverable) return;
     intentKeyRef.current = recoverable.idempotencyKey;
     intentFingerprintRef.current = recoverable.fingerprint;
-    if (
-      recoverable.transferId &&
-      (recoverable.status === 'succeeded' ||
-        recoverable.status === 'submitting' ||
-        recoverable.status === 'unknown')
-    ) {
-      const existing = getTransferById(recoverable.transferId);
-      if (existing) {
-        setSubmittedTransfer(existing);
-        setPhase('success');
+    const existing =
+      (recoverable.transferId && getTransferById(recoverable.transferId)) ||
+      transfers.find((transfer) => transfer.idempotencyKey === recoverable.idempotencyKey);
+    if (existing) {
+      if (recoverable.status !== 'succeeded' || recoverable.transferId !== existing.id) {
+        saveTransferOperation({ ...recoverable, transferId: existing.id, status: 'succeeded' });
       }
+      setSubmitError(null);
+      setSubmittedTransfer(existing);
+      setPhase('success');
+    } else if (recoverable.status === 'unknown' || recoverable.status === 'submitting') {
+      setSubmitError('Transfer status is unknown. Check Transfers, or re-enter the same details to retry safely.');
     }
   }, [getTransferById, transfers]);
 
@@ -258,13 +260,13 @@ export default function SendMoney() {
         rate: finalQuote.rate,
         expiresAt: finalQuote.expiresAt,
       };
-      const fingerprint = fingerprintTransferPayload(payload);
-      // Edited payload after a prior intent requires a fresh key.
-      if (intentFingerprintRef.current !== fingerprint) {
-        intentKeyRef.current = await idempotencyKeyFor(fingerprint);
+      // Persist only an opaque fingerprint, never recipient or quote details.
+      const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
+      if (intentFingerprintRef.current !== fingerprint || !intentKeyRef.current) {
+        const recoverable = getLatestRecoverableOperation(fingerprint);
+        intentKeyRef.current = recoverable?.idempotencyKey ??
+          (await idempotencyKeyFor(fingerprint, newTransferIntentNonce()));
         intentFingerprintRef.current = fingerprint;
-      } else if (!intentKeyRef.current) {
-        intentKeyRef.current = await idempotencyKeyFor(fingerprint);
       }
       const idempotencyKey = intentKeyRef.current;
       saveTransferOperation({
@@ -331,6 +333,20 @@ export default function SendMoney() {
       submissionLock.current = false;
       setSubmitting(false);
     }
+  }
+
+  function dismissSuccess() {
+    if (intentKeyRef.current) {
+      saveTransferOperation({
+        idempotencyKey: intentKeyRef.current,
+        fingerprint: intentFingerprintRef.current,
+        transferId: submittedTransfer?.id,
+        status: 'dismissed',
+      });
+    }
+    intentKeyRef.current = null;
+    intentFingerprintRef.current = null;
+    setPhase(null);
   }
 
   const errorCount = Object.keys(errors).length;
@@ -478,17 +494,7 @@ export default function SendMoney() {
       {phase === 'success' && submittedTransfer && (
         <Modal
           open
-          onClose={() => {
-            if (intentKeyRef.current) {
-              saveTransferOperation({
-                idempotencyKey: intentKeyRef.current,
-                fingerprint: intentFingerprintRef.current,
-                transferId: submittedTransfer.id,
-                status: 'dismissed',
-              });
-            }
-            setPhase(null);
-          }}
+          onClose={dismissSuccess}
           title="Transfer submitted"
         >
           <p className="send-result-status" role="status" aria-live="polite">
@@ -528,17 +534,7 @@ export default function SendMoney() {
           <div className="send-dialog-actions">
             <Button
               variant="secondary"
-              onClick={() => {
-                if (intentKeyRef.current) {
-                  saveTransferOperation({
-                    idempotencyKey: intentKeyRef.current,
-                    fingerprint: intentFingerprintRef.current,
-                    transferId: submittedTransfer.id,
-                    status: 'dismissed',
-                  });
-                }
-                setPhase(null);
-              }}
+              onClick={dismissSuccess}
             >
               Close
             </Button>

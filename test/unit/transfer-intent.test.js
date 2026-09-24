@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   fingerprintTransferPayload,
   idempotencyKeyFor,
+  newTransferIntentNonce,
   saveTransferOperation,
   getTransferOperation,
   getLatestRecoverableOperation,
@@ -29,12 +30,32 @@ describe('transferIntent', () => {
     expect(fingerprintTransferPayload(base)).toEqual(a);
   });
 
+  it('keeps distinct integer amounts and full decimal precision', () => {
+    const base = {
+      recipient: 'amina@example.com', from: 'USD', to: 'NGN',
+      receiveAmount: 1500, fee: 1, rate: 1500,
+    };
+    const fingerprints = [1, 10, 100, '0.000000001'].map((sendAmount) =>
+      fingerprintTransferPayload({ ...base, sendAmount }),
+    );
+    expect(new Set(fingerprints).size).toBe(4);
+    expect(fingerprintTransferPayload({ ...base, sendAmount: '0.10' }))
+      .toBe(fingerprintTransferPayload({ ...base, sendAmount: 0.1 }));
+  });
+
   it('derives a stable idempotency key for the same fingerprint', async () => {
     const fp = 'usd|ngn|100';
     const k1 = await idempotencyKeyFor(fp);
     const k2 = await idempotencyKeyFor(fp);
     expect(k1).toEqual(k2);
     expect(k1.startsWith('idem_')).toBe(true);
+  });
+
+  it('uses a new key for a separate identical transfer intent', async () => {
+    const fingerprint = 'same recipient and amount';
+    const first = await idempotencyKeyFor(fingerprint, newTransferIntentNonce());
+    const second = await idempotencyKeyFor(fingerprint, newTransferIntentNonce());
+    expect(second).not.toBe(first);
   });
 
   it('persists only a safe operation reference across reads', () => {
@@ -50,6 +71,8 @@ describe('transferIntent', () => {
       status: 'submitting',
     });
     expect(getLatestRecoverableOperation()?.idempotencyKey).toBe('idem_abc');
+    expect(getLatestRecoverableOperation('fp')?.idempotencyKey).toBe('idem_abc');
+    expect(getLatestRecoverableOperation('other')).toBeNull();
     clearTransferOperation('idem_abc');
     expect(getTransferOperation('idem_abc')).toBeNull();
   });

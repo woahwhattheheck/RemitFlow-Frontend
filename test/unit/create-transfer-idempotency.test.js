@@ -49,6 +49,24 @@ describe('createTransfer idempotency', () => {
     ).toHaveLength(1);
   });
 
+  it('rejects different payloads that reuse a key, even while the first is pending', async () => {
+    const payload = {
+      recipient: 'amina@example.com', from: 'USD', to: 'NGN',
+      sendAmount: 50, receiveAmount: 75000, fee: 1, rate: 1500,
+      idempotencyKey: 'idem_conflict',
+    };
+    const pending = createTransfer(payload);
+    await expect(createTransfer({ ...payload, sendAmount: 51 }))
+      .rejects.toMatchObject({ name: 'ContractViolationError' });
+    const original = await pending;
+    await expect(createTransfer({ ...payload, sendAmount: 51 }))
+      .rejects.toMatchObject({ name: 'ContractViolationError' });
+    const listed = await listTransfers();
+    expect(listed.filter((t) => t.idempotencyKey === payload.idempotencyKey))
+      .toHaveLength(1);
+    expect(original.sendAmount).toBe('50');
+  });
+
   it('creates a new transfer when the idempotency key changes with the payload', async () => {
     const base = {
       recipient: 'amina@example.com',

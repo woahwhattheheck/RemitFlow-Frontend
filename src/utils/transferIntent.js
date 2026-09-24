@@ -7,7 +7,10 @@
  * across navigation/refresh — never secrets or raw form state.
  */
 
+import { parseDecimal } from './money.js';
+
 const OPS_KEY = 'remitflow.transferOps';
+let nonceSequence = 0;
 
 /** @typedef {'submitting'|'unknown'|'succeeded'|'failed'|'dismissed'} OpStatus */
 
@@ -17,9 +20,7 @@ const OPS_KEY = 'remitflow.transferOps';
  */
 export function fingerprintTransferPayload(payload) {
   const parts = [
-    String(payload.recipient ?? '')
-      .trim()
-      .toLowerCase(),
+    String(payload.recipient ?? ''),
     String(payload.from ?? '').toUpperCase(),
     String(payload.to ?? '').toUpperCase(),
     normalizeAmount(payload.sendAmount),
@@ -27,31 +28,45 @@ export function fingerprintTransferPayload(payload) {
     normalizeAmount(payload.fee),
     normalizeAmount(payload.rate),
   ];
-  return parts.join('|');
+  return JSON.stringify(parts);
 }
 
 function normalizeAmount(value) {
   if (value === undefined || value === null || value === '') return '';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  return n.toFixed(8).replace(/\.?0+$/, '') || '0';
+  const parsed = parseDecimal(value);
+  return parsed.ok ? parsed.value : String(value);
 }
 
 /**
- * Stable idempotency key for a payload fingerprint.
- * Uses Web Crypto when available; falls back to a deterministic FNV-1a hash.
- * @param {string} fingerprint
+ * Unique nonce for a new user intent. Retries reuse the saved key instead.
  */
-export async function idempotencyKeyFor(fingerprint) {
+export function newTransferIntentNonce() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}:${++nonceSequence}:${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * Hash a payload fingerprint. A fresh nonce makes a new transfer key;
+ * a retry reuses the key saved with its operation reference.
+ * @param {string} fingerprint
+ * @param {string} [nonce]
+ */
+export async function idempotencyKeyFor(fingerprint, nonce) {
+  const input = nonce === undefined ? fingerprint : JSON.stringify([fingerprint, nonce]);
   if (globalThis.crypto?.subtle) {
-    const data = new TextEncoder().encode(fingerprint);
+    const data = new TextEncoder().encode(input);
     const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
     const hex = [...new Uint8Array(digest)]
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
     return `idem_${hex.slice(0, 32)}`;
   }
-  return `idem_${fnv1a(fingerprint)}`;
+  return `idem_${fnv1a(input)}`;
 }
 
 function fnv1a(input) {
@@ -110,11 +125,12 @@ export function getTransferOperation(idempotencyKey) {
  * yet dismissed. Used after navigation/refresh to restore status without
  * minting a second transfer.
  */
-export function getLatestRecoverableOperation() {
+export function getLatestRecoverableOperation(fingerprint) {
   const recoverable = new Set(['submitting', 'unknown', 'succeeded']);
   const ops = Object.values(readOps());
   const matches = ops
-    .filter((op) => op && recoverable.has(op.status))
+    .filter((op) => op && recoverable.has(op.status) &&
+      (fingerprint === undefined || op.fingerprint === fingerprint))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   return matches[0] ?? null;
 }

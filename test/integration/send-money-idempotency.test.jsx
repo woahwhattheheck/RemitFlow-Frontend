@@ -67,6 +67,24 @@ describe('SendMoney duplicate-submission guard', () => {
     expect(mine.length).toBe(1);
   });
 
+  it('allows another identical transfer after the first was acknowledged', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await fillValidForm(user, '25');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await user.click(screen.getByRole('button', { name: /review & send/i }));
+      const confirm = await screen.findByRole('dialog', { name: /confirm your transfer/i });
+      await user.click(within(confirm).getByRole('button', { name: /confirm transfer/i }));
+      const success = await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+      await user.click(within(success).getByRole('button', { name: /^close$/i }));
+    }
+    const listed = await api.listTransfers();
+    const sent = listed.filter((t) => t.recipient === 'amina@example.com' && Number(t.sendAmount) === 25 && t.idempotencyKey);
+    expect(sent).toHaveLength(2);
+    expect(sent[0].idempotencyKey).not.toBe(sent[1].idempotencyKey);
+    expect(sessionStorage.getItem('remitflow.transferOps')).not.toContain('amina@example.com');
+  });
+
   it('refresh restores in-flight status without creating a second transfer', async () => {
     const payload = {
       recipient: 'amina@example.com',
@@ -100,6 +118,23 @@ describe('SendMoney duplicate-submission guard', () => {
     expect(
       listed.filter((t) => t.idempotencyKey === idempotencyKey),
     ).toHaveLength(1);
+  });
+
+  it('reconciles an accepted transfer after refresh even without its transfer id', async () => {
+    const payload = {
+      recipient: 'amina@example.com', from: 'USD', to: 'NGN',
+      sendAmount: 25, receiveAmount: 36642.38, fee: 0.25, rate: 1480.5,
+    };
+    const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
+    const idempotencyKey = await idempotencyKeyFor(fingerprint, 'prior-intent');
+    await api.createTransfer({ ...payload, idempotencyKey });
+    saveTransferOperation({ idempotencyKey, fingerprint, status: 'unknown' });
+    const spy = vi.spyOn(api, 'createTransfer');
+    render(<App />);
+    expect(await screen.findByRole('dialog', { name: /transfer submitted/i }))
+      .toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    expect(getLatestRecoverableOperation()?.status).toBe('succeeded');
   });
 
   it('timeout retry with the same intent reuses the idempotency key', async () => {
