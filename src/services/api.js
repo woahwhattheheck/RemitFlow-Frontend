@@ -120,17 +120,30 @@ export function createTransfer(payload) {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       try {
+        const { idempotencyKey, ...fields } = payload ?? {};
+        const existing = read();
+        const transfers = Array.isArray(existing) ? existing : [];
+
+        // Same idempotency key + same logical intent → return the prior record
+        // instead of inserting a duplicate transfer.
+        if (idempotencyKey) {
+          const prior = transfers.find((t) => t.idempotencyKey === idempotencyKey);
+          if (prior) {
+            resolve(parseTransfer(prior, { source: 'createTransfer.idempotent' }));
+            return;
+          }
+        }
+
         const transfer = parseTransfer(
           {
             id: 'tx_' + Date.now(),
             status: 'pending',
             createdAt: new Date().toISOString(),
-            ...payload,
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+            ...fields,
           },
           { source: 'createTransfer' },
         );
-        const existing = read();
-        const transfers = Array.isArray(existing) ? existing : [];
         transfers.push(transfer);
         write(transfers);
         resolve(transfer);

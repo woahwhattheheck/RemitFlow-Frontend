@@ -17,6 +17,12 @@ import {
 } from '../utils/validate.js';
 import { useWallet } from '../hooks/useWallet.js';
 import { useTransfers } from '../hooks/useTransfers.js';
+import {
+  fingerprintTransferPayload,
+  idempotencyKeyFor,
+  saveTransferOperation,
+  getLatestInFlightOperation,
+} from '../utils/transferIntent.js';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.js';
 import { useApp } from '../context/AppContext.jsx';
 import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
@@ -36,7 +42,7 @@ import './SendMoney.css';
 export default function SendMoney() {
   const navigate = useNavigate();
   const { wallet, isConnected, connect } = useWallet();
-  const { addTransfer } = useTransfers();
+  const { addTransfer, getTransferById, transfers } = useTransfers();
   const { locale } = useApp();
   const isOnline = useOnlineStatus();
 
@@ -48,6 +54,8 @@ export default function SendMoney() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const submissionLock = useRef(false);
+  const intentKeyRef = useRef(null);
+  const intentFingerprintRef = useRef(null);
   const wasOffline = useRef(false);
 
   // True when the form just recovered from a disconnected state. Used to
@@ -59,6 +67,23 @@ export default function SendMoney() {
   const [phase, setPhase] = useState(null);
   const [pendingQuote, setPendingQuote] = useState(null);
   const [submittedTransfer, setSubmittedTransfer] = useState(null);
+
+  // Restore an in-flight transfer intent after navigation/refresh so a retry
+  // cannot mint a second transfer for the same payload.
+  useEffect(() => {
+    const inflight = getLatestInFlightOperation();
+    if (!inflight) return;
+    intentKeyRef.current = inflight.idempotencyKey;
+    intentFingerprintRef.current = inflight.fingerprint;
+    if (inflight.transferId) {
+      const existing = getTransferById(inflight.transferId);
+      if (existing) {
+        setSubmittedTransfer(existing);
+        setPhase('success');
+      }
+    }
+  }, [getTransferById, transfers]);
+
   const submitButtonRef = useRef(null);
 
   // Debounce the amount so the quote isn't rebuilt on every keystroke.
@@ -209,7 +234,7 @@ export default function SendMoney() {
       // Record the fee, rate and expiry alongside the amounts so the receipt
       // can reproduce exactly what was quoted rather than re-deriving it from
       // a rate that may since have moved.
-      const created = await addTransfer({
+      const payload = {
         recipient,
         from,
         to,
@@ -218,6 +243,27 @@ export default function SendMoney() {
         fee: finalQuote.fee,
         rate: finalQuote.rate,
         expiresAt: finalQuote.expiresAt,
+      };
+      const fingerprint = fingerprintTransferPayload(payload);
+      // Edited payload after a prior intent requires a fresh key.
+      if (intentFingerprintRef.current !== fingerprint) {
+        intentKeyRef.current = await idempotencyKeyFor(fingerprint);
+        intentFingerprintRef.current = fingerprint;
+      } else if (!intentKeyRef.current) {
+        intentKeyRef.current = await idempotencyKeyFor(fingerprint);
+      }
+      const idempotencyKey = intentKeyRef.current;
+      saveTransferOperation({
+        idempotencyKey,
+        fingerprint,
+        status: 'submitting',
+      });
+      const created = await addTransfer({ ...payload, idempotencyKey });
+      saveTransferOperation({
+        idempotencyKey,
+        fingerprint,
+        transferId: created?.id,
+        status: created?.status ?? 'pending',
       });
       setSubmittedTransfer(created ?? finalQuote);
       setPendingQuote(null);
