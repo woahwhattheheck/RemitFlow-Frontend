@@ -1,28 +1,88 @@
-
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listTransfers, createTransfer } from '../services/api.js';
 import { ContractViolationError } from '../services/contracts/schema.js';
 import { getUserErrorMessage, normalizeError } from '../services/errors.js';
+import { DEMO_PUBLIC_KEY } from '../services/wallet.js';
+import {
+  DEFAULT_RESULT_CAP,
+  transferQueryScopeKey,
+} from '../utils/transferSearch.js';
+
+function isAbortError(err) {
+  return (
+    err?.name === 'AbortError' ||
+    err?.code === 'ERR_CANCELED' ||
+    err?.code === 'ECONNABORTED'
+  );
+}
 
 /**
  * Hook for loading and creating transfers.
+ *
+ * List requests always carry an actor scope, honour AbortSignal cancellation,
+ * and ignore stale responses so a slow reply for an old filter cannot
+ * overwrite the current result set.
+ *
+ * @param {{
+ *   actorId?: string,
+ *   filters?: {search?: string, status?: string, range?: string},
+ *   limit?: number,
+ * }} [options]
  * @returns {{transfers: Array, loading: boolean, error: string|null,
  *   retryable: boolean, reload: Function|undefined, addTransfer: Function}}
  */
-export function useTransfers() {
+export function useTransfers(options = {}) {
+  const actorId = options.actorId || DEMO_PUBLIC_KEY;
+  const filters = options.filters || {};
+  const limit = options.limit ?? DEFAULT_RESULT_CAP;
+
   const [transfers, setTransfers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryable, setRetryable] = useState(false);
 
+  const requestGen = useRef(0);
+  const abortRef = useRef(null);
+
+  const scopeKey = transferQueryScopeKey({
+    actorId,
+    search: filters.search,
+    status: filters.status,
+    range: filters.range,
+    limit,
+  });
+
   const reload = useCallback(async () => {
+    const gen = ++requestGen.current;
+    const expectedScope = scopeKey;
+
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     setRetryable(false);
     try {
-      const data = await listTransfers();
+      const data = await listTransfers({
+        actorId,
+        search: filters.search,
+        status: filters.status,
+        range: filters.range,
+        limit,
+        signal: controller.signal,
+      });
+      // Drop stale replies: a newer filter/request already superseded this one.
+      if (gen !== requestGen.current || expectedScope !== scopeKey) {
+        return;
+      }
       setTransfers(data);
     } catch (err) {
+      if (isAbortError(err) || gen !== requestGen.current) {
+        return;
+      }
       if (err instanceof ContractViolationError) {
         // A schema change, not a flaky request. Retrying will not help, and
         // showing an empty list would imply the transfers no longer exist.
@@ -37,19 +97,43 @@ export function useTransfers() {
         setRetryable(normalized.retryable);
       }
     } finally {
-      setLoading(false);
+      if (gen === requestGen.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [actorId, filters.search, filters.status, filters.range, limit, scopeKey]);
 
   useEffect(() => {
     reload();
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
   }, [reload]);
 
-  const addTransfer = useCallback(async (payload) => {
-    const created = await createTransfer(payload);
-    setTransfers((prev) => [created, ...prev]);
-    return created;
-  }, []);
+  const addTransfer = useCallback(
+    async (payload) => {
+      const created = await createTransfer({
+        ...payload,
+        actorId: payload?.actorId || actorId,
+      });
+      setTransfers((prev) => {
+        // Prepend only when the new row matches the active filter scope.
+        const matchesSearch =
+          !filters.search ||
+          String(created.recipient ?? '')
+            .toLowerCase()
+            .includes(String(filters.search).toLowerCase());
+        const matchesStatus =
+          !filters.status || created.status === filters.status;
+        if (!matchesSearch || !matchesStatus) return prev;
+        return [created, ...prev].slice(0, limit);
+      });
+      return created;
+    },
+    [actorId, filters.search, filters.status, limit],
+  );
 
   // Existing consumers use reload for both pull-to-refresh and the error-state
   // retry action. Withhold it only while a non-retryable error is displayed.

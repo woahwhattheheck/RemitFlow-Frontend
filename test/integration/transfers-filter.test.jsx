@@ -112,8 +112,10 @@ describe('Transfers page filter sync', () => {
     await waitFor(() => {
       expect(window.location.search).toBe('');
     });
-    expect(screen.getByText(/amina@exam/)).toBeInTheDocument();
-    expect(screen.getByText(/GBQAZ7Z3X7/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/amina@exam/)).toBeInTheDocument();
+      expect(screen.getByText(/GBQAZ7Z3X7/)).toBeInTheDocument();
+    });
   });
 
   it('filters by date-range preset and syncs to URL', async () => {

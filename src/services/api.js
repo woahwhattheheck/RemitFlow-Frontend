@@ -11,6 +11,13 @@ import {
   parseTransferList,
   transferContract,
 } from './contracts/transfer.js';
+import { DEMO_PUBLIC_KEY } from './wallet.js';
+import {
+  DEFAULT_RESULT_CAP,
+  applyTransferSearch,
+  normalizeTransferQuery,
+  requireActorId,
+} from '../utils/transferSearch.js';
 
 const STORAGE_KEY = 'remitflow.transfers';
 
@@ -25,6 +32,7 @@ const SEED_TRANSFERS = [
     receiveAmount: 294620,
     status: 'completed',
     createdAt: '2026-05-28T10:15:00Z',
+    actorId: DEMO_PUBLIC_KEY,
   },
   {
     id: 'tx_1002',
@@ -35,6 +43,7 @@ const SEED_TRANSFERS = [
     receiveAmount: 9920,
     status: 'pending',
     createdAt: '2026-06-02T08:42:00Z',
+    actorId: DEMO_PUBLIC_KEY,
   },
 ];
 
@@ -67,18 +76,57 @@ function reportRejected(rejected) {
   }
 }
 
+function abortedError() {
+  if (typeof DOMException === 'function') {
+    return new DOMException(
+      'The transfer list request was aborted.',
+      'AbortError',
+    );
+  }
+  const err = new Error('The transfer list request was aborted.');
+  err.name = 'AbortError';
+  return err;
+}
+
 /**
- * List all transfers, newest first.
+ * List transfers for one actor, newest first, with optional filters.
+ *
+ * Every call must carry `actorId` so results cannot cross wallet scope.
+ * Pass `signal` to cancel an obsolete in-flight query when filters change.
+ * Results are stably sorted and capped so large histories stay responsive.
  *
  * One malformed record is dropped and logged so the rest of the list still
  * renders. A response where *every* record fails is a schema change, not bad
  * data, and is raised so the UI can say so instead of showing "no transfers".
  *
- * @returns {Promise<Array>} contract-normalised transfers
+ * @param {{
+ *   actorId?: string,
+ *   search?: string,
+ *   status?: string,
+ *   range?: string,
+ *   limit?: number,
+ *   signal?: AbortSignal,
+ * }} [options]
+ * @returns {Promise<object[]>} contract-normalised transfers
  */
-export function listTransfers() {
+export function listTransfers(options = {}) {
+  const actorId = requireActorId(options.actorId ?? DEMO_PUBLIC_KEY);
+  const query = normalizeTransferQuery({
+    actorId,
+    search: options.search,
+    status: options.status,
+    range: options.range,
+    limit: options.limit ?? DEFAULT_RESULT_CAP,
+  });
+  const signal = options.signal;
+
   return new Promise((resolve, reject) => {
-    setTimeout(() => {
+    if (signal?.aborted) {
+      reject(abortedError());
+      return;
+    }
+
+    const timer = setTimeout(() => {
       try {
         const { transfers, rejected, breaking } = parseTransferList(read(), {
           source: 'listTransfers',
@@ -94,15 +142,23 @@ export function listTransfers() {
           );
         }
         if (rejected.length) reportRejected(rejected);
-        resolve(
-          transfers
-            .slice()
-            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-        );
+
+        const { items } = applyTransferSearch(transfers, query, {
+          legacyActorId: DEMO_PUBLIC_KEY,
+        });
+        resolve(items);
       } catch (error) {
         reject(error);
       }
     }, 400);
+
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(abortedError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
   });
 }
 
@@ -120,12 +176,17 @@ export function createTransfer(payload) {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       try {
+        const actorId =
+          typeof payload?.actorId === 'string' && payload.actorId.trim()
+            ? payload.actorId.trim()
+            : DEMO_PUBLIC_KEY;
         const transfer = parseTransfer(
           {
             id: 'tx_' + Date.now(),
             status: 'pending',
             createdAt: new Date().toISOString(),
             ...payload,
+            actorId,
           },
           { source: 'createTransfer' },
         );
