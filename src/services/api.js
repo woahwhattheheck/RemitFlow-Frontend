@@ -46,7 +46,7 @@ function read() {
   } catch {
     // ignore parse/storage errors
   }
-  return SEED_TRANSFERS;
+  return SEED_TRANSFERS.map((transfer) => ({ ...transfer }));
 }
 
 function write(transfers) {
