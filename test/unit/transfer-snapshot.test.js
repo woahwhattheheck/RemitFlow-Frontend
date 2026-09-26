@@ -91,6 +91,35 @@ describe('transferSnapshot', () => {
     ]);
   });
 
+  it('keeps snapshot pages complete after a live row disappears and rejects a forged cursor', () => {
+    const rows = Array.from({ length: 7 }, (_, i) =>
+      tx(`tx_${i}`, `2026-09-01T10:0${i}:00Z`),
+    );
+    const filters = { search: '', status: '', range: '' };
+    const snapshot = createTransferSnapshot(rows, { filters, now: NOW, pageSize: 5 });
+    const first = pageFromSnapshot(snapshot, rows, { filters, now: NOW });
+    const filtered = rows.filter((row) => row.id !== 'tx_1');
+    const second = pageFromSnapshot(snapshot, filtered, {
+      cursor: first.nextCursor,
+      filters,
+      now: NOW,
+    });
+    expect(second.ok).toBe(true);
+    expect(second.items.map((row) => row.id)).toEqual(['tx_1', 'tx_0']);
+
+    const forged = encodeCursor({
+      snapshotId: snapshot.id,
+      scope: snapshot.scope,
+      page: 2,
+      after: snapshot.items[0],
+    });
+    expect(pageFromSnapshot(snapshot, filtered, {
+      cursor: forged,
+      filters,
+      now: NOW,
+    }).code).toBe('cursor_expired');
+  });
+
   it('rejects cursors outside the filter scope', () => {
     const rows = [tx('tx_1', '2026-09-01T10:00:00Z')];
     const snapshot = createTransferSnapshot(rows, {
