@@ -293,16 +293,9 @@ export default function SendMoney() {
         return;
       }
 
-      if (!amountsReconcile(finalQuote, finalQuote)) {
-        setSubmitError('Displayed amounts do not match the quote payload.');
-        setPendingQuote(null);
-        setPhase(null);
-        return;
-      }
-
       // Bind the quote id into the transfer so receipts can prove which price
       // was confirmed. Amounts come from the bound quote, not a rebuild.
-      const created = await addTransfer({
+      const transferPayload = {
         recipient,
         from: finalQuote.from,
         to: finalQuote.to,
@@ -312,7 +305,14 @@ export default function SendMoney() {
         rate: finalQuote.rate,
         expiresAt: finalQuote.expiresAt,
         quoteId: finalQuote.id,
-      });
+      };
+      if (!amountsReconcile(finalQuote, transferPayload)) {
+        setSubmitError('Displayed amounts do not match the transfer payload.');
+        setPendingQuote(null);
+        setPhase(null);
+        return;
+      }
+      const created = await addTransfer(transferPayload);
       setSubmittedTransfer(created ?? finalQuote);
       setPendingQuote(null);
       setSubmitError(null);
