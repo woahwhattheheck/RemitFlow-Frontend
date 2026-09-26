@@ -160,16 +160,14 @@ export default function Transfers() {
       const active = resolved.snapshot;
       if (!active) return;
       const safePage = Math.min(Math.max(1, nextPage), totalPages);
-      const lastRef =
-        active.items[
-          Math.min(safePage * DEFAULT_PAGE_SIZE, active.items.length) - 1
-        ] ?? null;
+      const priorRef =
+        active.items[(safePage - 1) * active.pageSize - 1] ?? null;
       setCursor(
         encodeCursor({
           snapshotId: active.id,
           scope: active.scope,
           page: safePage,
-          after: lastRef,
+          after: priorRef,
         }),
       );
       setSnapshotNotice(null);
