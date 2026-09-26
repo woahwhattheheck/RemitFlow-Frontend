@@ -197,11 +197,14 @@ export function assertQuoteSignable(quote, inputs, now = Date.now()) {
     };
   }
 
-  if (!amountsReconcile(quote, quote)) {
+  // Validate quote amounts independently. Reconciliation happens at the
+  // send boundary, where a separately assembled payload exists to compare.
+  const amountFields = ['sendAmount', 'fee', 'receiveAmount', 'rate'];
+  if (amountFields.some((field) => !parseDecimal(quote[field]).ok)) {
     return {
       ok: false,
       code: 'reconcile',
-      reason: 'Displayed amounts do not reconcile with the quote payload.',
+      reason: 'Quote amounts are invalid and cannot be confirmed.',
     };
   }
 
