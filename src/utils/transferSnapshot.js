@@ -56,6 +56,7 @@ export function createTransferSnapshot(transfers, options = {}) {
   const items = stableSortTransfers(transfers).map((t) => ({
     id: t.id,
     createdAt: t.createdAt,
+    record: { ...t },
   }));
 
   return {
@@ -104,7 +105,7 @@ export function decodeCursor(cursor) {
   }
   try {
     const raw = JSON.parse(fromBase64Url(cursor.slice(2)));
-    if (!raw?.s || typeof raw.page !== 'number') return null;
+    if (!raw?.s || !Number.isSafeInteger(raw.page) || raw.page < 1) return null;
     return {
       snapshotId: raw.s,
       scope: raw.scope ?? '',
@@ -153,7 +154,11 @@ export function isCursorInScope(decoded, snapshot, filters, now = Date.now()) {
   if (decoded.scope !== snapshot.scope) return false;
   if (decoded.scope !== filterScopeKey(filters)) return false;
   if (isSnapshotExpired(snapshot, now)) return false;
-  return true;
+  const totalPages = Math.max(1, Math.ceil(snapshot.items.length / snapshot.pageSize));
+  if (decoded.page > totalPages) return false;
+  const prior = snapshot.items[(decoded.page - 1) * snapshot.pageSize - 1] ?? null;
+  if (!prior) return decoded.after === null;
+  return decoded.after?.id === prior.id && decoded.after?.createdAt === prior.createdAt;
 }
 
 export function isSnapshotExpired(snapshot, now = Date.now()) {
@@ -216,16 +221,16 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
   const start = (page - 1) * pageSize;
   const slice = snapshot.items.slice(start, start + pageSize);
-  const items = slice.map((ref) => byId.get(ref.id)).filter(Boolean);
-
-  // Deterministic: missing live rows (deleted) leave a hole rather than
-  // pulling the next unsnapshotted transfer into this page.
+  // Keep a complete snapshot even if a row disappears or changes its active
+  // filter after the snapshot was taken. Fresh fields win while it remains live.
+  const items = slice.map((ref) => byId.get(ref.id) ?? ref.record);
+  const priorRef = snapshot.items[start - 1] ?? null;
   const lastRef = slice[slice.length - 1] ?? null;
   const currentCursor = encodeCursor({
     snapshotId: snapshot.id,
     scope: snapshot.scope,
     page,
-    after: lastRef,
+    after: priorRef,
   });
   const nextCursor =
     page < totalPages
@@ -242,7 +247,7 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
           snapshotId: snapshot.id,
           scope: snapshot.scope,
           page: page - 1,
-          after: null,
+          after: snapshot.items[(page - 2) * pageSize - 1] ?? null,
         })
       : null;
 
