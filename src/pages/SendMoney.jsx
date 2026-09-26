@@ -36,7 +36,7 @@ import './SendMoney.css';
 export default function SendMoney() {
   const navigate = useNavigate();
   const { wallet, isConnected, connect } = useWallet();
-  const { addTransfer } = useTransfers();
+  const { addTransfer } = useTransfers({ actorId: wallet?.publicKey });
   const { locale } = useApp();
   const isOnline = useOnlineStatus();
 
@@ -187,8 +187,9 @@ export default function SendMoney() {
     submissionLock.current = true;
     setSubmitting(true);
     try {
-      if (!isConnected) {
-        await connect();
+      const account = isConnected ? wallet : await connect();
+      if (!account?.publicKey) {
+        throw new Error('Connect a wallet before sending.');
       }
 
       // Rebuild at confirmation time so the committed amounts match the note:
@@ -210,6 +211,7 @@ export default function SendMoney() {
       // can reproduce exactly what was quoted rather than re-deriving it from
       // a rate that may since have moved.
       const created = await addTransfer({
+        actorId: account.publicKey,
         recipient,
         from,
         to,
