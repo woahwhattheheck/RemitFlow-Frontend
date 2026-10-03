@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { listTransfers, createTransfer } from '../services/api.js';
 import { ContractViolationError } from '../services/contracts/schema.js';
 import { getUserErrorMessage, normalizeError } from '../services/errors.js';
 import { DEMO_PUBLIC_KEY } from '../services/wallet.js';
 import {
   DEFAULT_RESULT_CAP,
+  applyTransferSearch,
+  isVisibleToActor,
+  normalizeTransferQuery,
   transferQueryScopeKey,
 } from '../utils/transferSearch.js';
 
@@ -43,6 +52,7 @@ export function useTransfers(options = {}) {
 
   const requestGen = useRef(0);
   const abortRef = useRef(null);
+  const activeScopeRef = useRef(null);
 
   const scopeKey = transferQueryScopeKey({
     actorId,
@@ -52,15 +62,31 @@ export function useTransfers(options = {}) {
     limit,
   });
 
+  useLayoutEffect(() => {
+    // A new committed lifecycle stays distinct even after A -> B -> A.
+    activeScopeRef.current = { key: scopeKey };
+    return () => {
+      activeScopeRef.current = null;
+      requestGen.current += 1;
+      abortRef.current?.abort();
+    };
+  }, [scopeKey]);
+
   const reload = useCallback(async () => {
+    const expectedScope = activeScopeRef.current;
+    // A retained callback for an old query must not cancel the active one.
+    if (!expectedScope || expectedScope.key !== scopeKey) return;
     const gen = ++requestGen.current;
-    const expectedScope = scopeKey;
 
     if (abortRef.current) {
       abortRef.current.abort();
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    const isCurrent = () =>
+      activeScopeRef.current === expectedScope &&
+      gen === requestGen.current &&
+      !controller.signal.aborted;
 
     setLoading(true);
     setError(null);
@@ -75,12 +101,12 @@ export function useTransfers(options = {}) {
         signal: controller.signal,
       });
       // Drop stale replies: a newer filter/request already superseded this one.
-      if (gen !== requestGen.current || expectedScope !== scopeKey) {
+      if (!isCurrent()) {
         return;
       }
       setTransfers(data);
     } catch (err) {
-      if (isAbortError(err) || gen !== requestGen.current) {
+      if (isAbortError(err) || !isCurrent()) {
         return;
       }
       if (err instanceof ContractViolationError) {
@@ -97,7 +123,7 @@ export function useTransfers(options = {}) {
         setRetryable(normalized.retryable);
       }
     } finally {
-      if (gen === requestGen.current) {
+      if (isCurrent()) {
         setLoading(false);
       }
     }
@@ -114,25 +140,39 @@ export function useTransfers(options = {}) {
 
   const addTransfer = useCallback(
     async (payload) => {
+      const expectedScope = activeScopeRef.current;
+      const isCurrent = () =>
+        expectedScope &&
+        expectedScope.key === scopeKey &&
+        activeScopeRef.current === expectedScope;
       const created = await createTransfer({
         ...payload,
         actorId: payload?.actorId || actorId,
       });
+      // Creation still succeeds for its caller when its old view has retired.
+      if (!isCurrent()) return created;
       setTransfers((prev) => {
-        // Prepend only when the new row matches the active filter scope.
-        const matchesSearch =
-          !filters.search ||
-          String(created.recipient ?? '')
-            .toLowerCase()
-            .includes(String(filters.search).toLowerCase());
-        const matchesStatus =
-          !filters.status || created.status === filters.status;
-        if (!matchesSearch || !matchesStatus) return prev;
-        return [created, ...prev].slice(0, limit);
+        if (!isCurrent()) return prev;
+        const query = normalizeTransferQuery({
+          actorId,
+          search: filters.search,
+          status: filters.status,
+          range: filters.range,
+          limit,
+        });
+        const visibility = { legacyActorId: DEMO_PUBLIC_KEY };
+        // Another actor's colliding ID must not replace this actor's row.
+        if (!isVisibleToActor(created, query.actorId, visibility)) return prev;
+        // Match the list API's actor, date, status, sort and cap semantics.
+        return applyTransferSearch(
+          [created, ...prev.filter((row) => row.id !== created.id)],
+          query,
+          visibility,
+        ).items;
       });
       return created;
     },
-    [actorId, filters.search, filters.status, limit],
+    [actorId, filters.search, filters.status, filters.range, limit, scopeKey],
   );
 
   // Existing consumers use reload for both pull-to-refresh and the error-state
