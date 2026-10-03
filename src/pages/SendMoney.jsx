@@ -153,10 +153,10 @@ export default function SendMoney() {
     if (!parsedAmount.ok) {
       next.amount = parsedAmount.error;
     } else if (
+      // Both values are canonical; do not apply the input locale again.
       wallet &&
       !isWithinBalance(parsedAmount.value, wallet.balance, {
         currency: from,
-        locale,
       })
     ) {
       next.amount = 'Amount exceeds your wallet balance.';
