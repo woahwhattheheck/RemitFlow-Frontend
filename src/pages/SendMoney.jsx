@@ -122,10 +122,15 @@ export default function SendMoney() {
     setTo(from);
   }
 
-  // Tidy the amount field to two decimals once the user leaves it.
+  // Keep the field in its input locale when padding the currency precision.
   function handleAmountBlur(value) {
     const formatted = formatCurrencyInput(value, from, locale);
-    if (formatted) setAmount(formatted);
+    if (formatted) {
+      const decimal = new Intl.NumberFormat(locale)
+        .formatToParts(1.1)
+        .find((part) => part.type === 'decimal')?.value ?? '.';
+      setAmount(formatted.replace('.', decimal));
+    }
   }
 
   function applyErrors(next) {

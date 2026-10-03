@@ -123,6 +123,35 @@ describe('Send money quote freshness', () => {
     });
   });
 
+  it('preserves Portuguese decimal input through blur and confirmation', async () => {
+    localStorage.setItem('remitflow:locale', JSON.stringify('pt-BR'));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<App />);
+
+    await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+    await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
+    const amountField = screen.getByLabelText(/amount/i);
+    await user.type(amountField, '15,00');
+    await user.tab();
+    expect(amountField).toHaveValue('15,00');
+
+    // Repeated focus changes must leave the same value signable.
+    await user.click(amountField);
+    await user.tab();
+    expect(amountField).toHaveValue('15,00');
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const dialog = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent('15,00');
+
+    await user.click(within(dialog).getByRole('button', { name: /confirm transfer/i }));
+    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    const transfer = stored.find((entry) => entry.quoteId);
+    expect(transfer.sendAmount).toBe('15');
+  });
+
   it('binds the quote id into the createTransfer payload', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const createSpy = vi.spyOn(api, 'createTransfer').mockImplementation(async (payload) => ({
