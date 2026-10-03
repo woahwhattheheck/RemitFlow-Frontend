@@ -14,6 +14,14 @@ let nonceSequence = 0;
 
 /** @typedef {'submitting'|'unknown'|'succeeded'|'failed'|'dismissed'} OpStatus */
 
+/** A pre-submit recovery reference could not be read or saved safely. */
+export class TransferOperationStorageError extends Error {
+  constructor() {
+    super('Transfer recovery information is unavailable.');
+    this.name = 'TransferOperationStorageError';
+  }
+}
+
 /**
  * Canonical fingerprint of the transferable payload fields.
  * @param {{recipient:string,from:string,to:string,sendAmount:number|string,receiveAmount:number|string,fee?:number|string,rate?:number|string}} payload
@@ -78,32 +86,38 @@ function fnv1a(input) {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function readOps() {
+function readOps({ strict = false } = {}) {
   try {
     const raw = sessionStorage.getItem(OPS_KEY);
-    if (!raw) return {};
+    if (raw === null || (!strict && !raw)) return {};
     const parsed = JSON.parse(raw);
+    if (strict && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+      throw new TransferOperationStorageError();
+    }
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
+    if (strict) throw new TransferOperationStorageError();
     return {};
   }
 }
 
-function writeOps(ops) {
+function writeOps(ops, { strict = false } = {}) {
   try {
     sessionStorage.setItem(OPS_KEY, JSON.stringify(ops));
   } catch {
-    // ignore quota / private mode
+    if (strict) throw new TransferOperationStorageError();
+    // Status updates after submission remain best-effort.
   }
 }
 
 /**
  * Persist a safe operation reference for navigation/refresh recovery.
  * @param {{idempotencyKey:string,fingerprint:string,transferId?:string|null,status:OpStatus}} op
+ * @param {{strict?:boolean}} [options] Require successful persistence before submission.
  */
-export function saveTransferOperation(op) {
+export function saveTransferOperation(op, options) {
   if (!op?.idempotencyKey) return;
-  const ops = readOps();
+  const ops = readOps(options);
   ops[op.idempotencyKey] = {
     idempotencyKey: op.idempotencyKey,
     fingerprint: op.fingerprint,
@@ -111,7 +125,7 @@ export function saveTransferOperation(op) {
     status: op.status,
     updatedAt: new Date().toISOString(),
   };
-  writeOps(ops);
+  writeOps(ops, options);
 }
 
 /** @param {string} idempotencyKey */
@@ -124,10 +138,12 @@ export function getTransferOperation(idempotencyKey) {
  * Latest recoverable intent: in-flight, unknown outcome, or succeeded but not
  * yet dismissed. Used after navigation/refresh to restore status without
  * minting a second transfer.
+ * @param {string} [fingerprint]
+ * @param {{strict?:boolean}} [options] Refuse to choose a new key from unreadable state.
  */
-export function getLatestRecoverableOperation(fingerprint) {
+export function getLatestRecoverableOperation(fingerprint, options) {
   const recoverable = new Set(['submitting', 'unknown', 'succeeded']);
-  const ops = Object.values(readOps());
+  const ops = Object.values(readOps(options));
   const matches = ops
     .filter((op) => op && recoverable.has(op.status) &&
       (fingerprint === undefined || op.fingerprint === fingerprint))

@@ -27,6 +27,7 @@ import {
   newTransferIntentNonce,
   saveTransferOperation,
   getLatestRecoverableOperation,
+  TransferOperationStorageError,
 } from '../utils/transferIntent.js';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.js';
 import { useApp } from '../context/AppContext.jsx';
@@ -263,17 +264,20 @@ export default function SendMoney() {
       // Persist only an opaque fingerprint, never recipient or quote details.
       const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
       if (intentFingerprintRef.current !== fingerprint || !intentKeyRef.current) {
-        const recoverable = getLatestRecoverableOperation(fingerprint);
+        const recoverable = getLatestRecoverableOperation(fingerprint, { strict: true });
         intentKeyRef.current = recoverable?.idempotencyKey ??
           (await idempotencyKeyFor(fingerprint, newTransferIntentNonce()));
         intentFingerprintRef.current = fingerprint;
       }
       const idempotencyKey = intentKeyRef.current;
-      saveTransferOperation({
-        idempotencyKey,
-        fingerprint,
-        status: 'submitting',
-      });
+      saveTransferOperation(
+        {
+          idempotencyKey,
+          fingerprint,
+          status: 'submitting',
+        },
+        { strict: true },
+      );
       const created = await addTransfer({ ...payload, idempotencyKey });
       saveTransferOperation({
         idempotencyKey,
@@ -288,7 +292,13 @@ export default function SendMoney() {
     } catch (err) {
       setPendingQuote(null);
       setPhase(null);
-      if (err instanceof ContractViolationError) {
+      if (err instanceof TransferOperationStorageError) {
+        // addTransfer was not called. Keep the in-memory intent for a safe
+        // retry, and do not attempt another write to unavailable storage.
+        setSubmitError(
+          'This attempt was not submitted because your browser could not preserve its recovery information. Check browser storage and try again.',
+        );
+      } else if (err instanceof ContractViolationError) {
         // The full field-by-field diff goes to the console; the user gets a
         // message that distinguishes "we rejected this" from "try again".
         console.error(err.message);

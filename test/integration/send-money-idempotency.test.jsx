@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
 import * as api from '../../src/services/api.js';
+import { buildQuote } from '../../src/services/quote.js';
 import {
   fingerprintTransferPayload,
   getLatestRecoverableOperation,
@@ -16,6 +17,30 @@ async function fillValidForm(user, amount = '25') {
     'amina@example.com',
   );
   await user.type(screen.getByLabelText(/^amount$/i), amount);
+}
+
+const RECOVERY_STORAGE_KEY = 'remitflow.transferOps';
+const NOT_SUBMITTED_MESSAGE =
+  'This attempt was not submitted because your browser could not preserve its recovery information. Check browser storage and try again.';
+
+function seedConnectedWallet() {
+  localStorage.setItem(
+    'remitflow.wallet',
+    JSON.stringify({
+      publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
+      balance: 1000,
+    }),
+  );
+}
+
+async function confirmCurrentForm(user) {
+  await user.click(screen.getByRole('button', { name: /review & send/i }));
+  const dialog = await screen.findByRole('dialog', {
+    name: /confirm your transfer/i,
+  });
+  await user.click(
+    within(dialog).getByRole('button', { name: /confirm transfer/i }),
+  );
 }
 
 describe('SendMoney duplicate-submission guard', () => {
@@ -361,5 +386,190 @@ describe('SendMoney duplicate-submission guard', () => {
       idempotencyKey: secondKey,
     });
     expect(b.id).not.toBe(a.id);
+  });
+
+  it('refuses a failed recovery write before creating and retries with the same intent', async () => {
+    seedConnectedWallet();
+    const nativeSetItem = Storage.prototype.setItem;
+    const attemptedOperations = [];
+    const storageSpy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (key, value) {
+        if (this === sessionStorage && key === RECOVERY_STORAGE_KEY) {
+          attemptedOperations.push(...Object.values(JSON.parse(value)));
+          throw new DOMException('private storage detail', 'QuotaExceededError');
+        }
+        return nativeSetItem.call(this, key, value);
+      });
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup();
+    render(<App />);
+    await fillValidForm(user);
+    await confirmCurrentForm(user);
+
+    expect(await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`)).toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(attemptedOperations).toHaveLength(1);
+    expect(attemptedOperations[0].status).toBe('submitting');
+    expect(sessionStorage.getItem(RECOVERY_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+    expect(
+      screen.queryByRole('dialog', { name: /transfer submitted/i }),
+    ).toBeNull();
+    expect(screen.queryByText(/private storage detail/i)).toBeNull();
+    expect(
+      screen.getByRole('button', { name: /review & send/i }),
+    ).toBeEnabled();
+
+    storageSpy.mockRestore();
+    await confirmCurrentForm(user);
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy.mock.calls[0][0].idempotencyKey).toBe(
+      attemptedOperations[0].idempotencyKey,
+    );
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    expect(stored.filter((row) => row.idempotencyKey)).toHaveLength(1);
+    expect(getLatestRecoverableOperation()).toMatchObject({
+      idempotencyKey: attemptedOperations[0].idempotencyKey,
+      status: 'succeeded',
+    });
+  });
+
+  it('refuses a transient recovery lookup failure and retries the existing key', async () => {
+    seedConnectedWallet();
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const listSpy = vi.spyOn(api, 'listTransfers');
+    const user = userEvent.setup();
+    render(<App />);
+    // Finish the initial load before adding a reference, so this attempt must
+    // discover it through the confirmation lookup rather than mount recovery.
+    await act(async () => {
+      await listSpy.mock.results[0].value;
+    });
+    await fillValidForm(user);
+    const fingerprint = await idempotencyKeyFor(
+      fingerprintTransferPayload({
+        ...buildQuote('25', 'USD', 'NGN'),
+        recipient: 'amina@example.com',
+      }),
+    );
+    const idempotencyKey = await idempotencyKeyFor(fingerprint, 'existing-intent');
+    saveTransferOperation({ idempotencyKey, fingerprint, status: 'unknown' });
+    const storedBefore = sessionStorage.getItem(RECOVERY_STORAGE_KEY);
+    const nativeGetItem = Storage.prototype.getItem;
+    let readFailures = 0;
+    const readSpy = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(function (key) {
+        if (
+          this === sessionStorage &&
+          key === RECOVERY_STORAGE_KEY &&
+          readFailures === 0
+        ) {
+          readFailures += 1;
+          throw new DOMException('private read detail', 'SecurityError');
+        }
+        return nativeGetItem.call(this, key);
+      });
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
+    await confirmCurrentForm(user);
+
+    expect(await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`)).toBeInTheDocument();
+    expect(readFailures).toBe(1);
+    expect(createSpy).not.toHaveBeenCalled();
+    const journalWrites = writeSpy.mock.calls.filter(
+      ([key], index) =>
+        writeSpy.mock.contexts[index] === sessionStorage &&
+        key === RECOVERY_STORAGE_KEY,
+    );
+    expect(journalWrites).toHaveLength(0);
+    expect(sessionStorage.getItem(RECOVERY_STORAGE_KEY)).toBe(storedBefore);
+    expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+    expect(screen.queryByText(/private read detail/i)).toBeNull();
+    expect(
+      screen.getByRole('button', { name: /review & send/i }),
+    ).toBeEnabled();
+
+    readSpy.mockRestore();
+    await confirmCurrentForm(user);
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy.mock.calls[0][0].idempotencyKey).toBe(idempotencyKey);
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    expect(stored.filter((row) => row.idempotencyKey)).toHaveLength(1);
+    expect(getLatestRecoverableOperation()).toMatchObject({
+      idempotencyKey,
+      status: 'succeeded',
+    });
+  });
+
+  it('keeps an accepted transfer visible when its recovery status write fails', async () => {
+    seedConnectedWallet();
+    const nativeSetItem = Storage.prototype.setItem;
+    let statusWriteFailures = 0;
+    const storageSpy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (key, value) {
+        if (this === sessionStorage && key === RECOVERY_STORAGE_KEY) {
+          const operations = Object.values(JSON.parse(value));
+          if (operations.some((op) => op.status === 'succeeded')) {
+            statusWriteFailures += 1;
+            throw new DOMException('private status detail', 'QuotaExceededError');
+          }
+        }
+        return nativeSetItem.call(this, key, value);
+      });
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup();
+    const initial = render(<App />);
+    await fillValidForm(user);
+    await confirmCurrentForm(user);
+    expect(
+      await screen.findByRole(
+        'dialog',
+        { name: /transfer submitted/i },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(statusWriteFailures).toBeGreaterThan(0);
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`)).toBeNull();
+    expect(screen.queryByText(/private status detail/i)).toBeNull();
+    const recoverable = getLatestRecoverableOperation();
+    expect(recoverable).toMatchObject({
+      idempotencyKey: createSpy.mock.calls[0][0].idempotencyKey,
+      transferId: null,
+      status: 'submitting',
+    });
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    expect(stored.filter((row) => row.idempotencyKey)).toHaveLength(1);
+    expect(stored.find((row) => row.idempotencyKey)?.idempotencyKey).toBe(
+      recoverable.idempotencyKey,
+    );
+
+    initial.unmount();
+    storageSpy.mockRestore();
+    render(<App />);
+    expect(
+      await screen.findByRole(
+        'dialog',
+        { name: /transfer submitted/i },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(getLatestRecoverableOperation()).toMatchObject({
+      idempotencyKey: recoverable.idempotencyKey,
+      status: 'succeeded',
+    });
   });
 });
