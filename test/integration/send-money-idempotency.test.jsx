@@ -73,16 +73,33 @@ describe('SendMoney duplicate-submission guard', () => {
     await fillValidForm(user, '25');
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await user.click(screen.getByRole('button', { name: /review & send/i }));
-      const confirm = await screen.findByRole('dialog', { name: /confirm your transfer/i });
-      await user.click(within(confirm).getByRole('button', { name: /confirm transfer/i }));
-      const success = await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
-      await user.click(within(success).getByRole('button', { name: /^close$/i }));
+      const confirm = await screen.findByRole('dialog', {
+        name: /confirm your transfer/i,
+      });
+      await user.click(
+        within(confirm).getByRole('button', { name: /confirm transfer/i }),
+      );
+      const success = await screen.findByRole(
+        'dialog',
+        { name: /transfer submitted/i },
+        { timeout: 5000 },
+      );
+      await user.click(
+        within(success).getByRole('button', { name: /^close$/i }),
+      );
     }
     const listed = await api.listTransfers();
-    const sent = listed.filter((t) => t.recipient === 'amina@example.com' && Number(t.sendAmount) === 25 && t.idempotencyKey);
+    const sent = listed.filter(
+      (t) =>
+        t.recipient === 'amina@example.com' &&
+        Number(t.sendAmount) === 25 &&
+        t.idempotencyKey,
+    );
     expect(sent).toHaveLength(2);
     expect(sent[0].idempotencyKey).not.toBe(sent[1].idempotencyKey);
-    expect(sessionStorage.getItem('remitflow.transferOps')).not.toContain('amina@example.com');
+    expect(sessionStorage.getItem('remitflow.transferOps')).not.toContain(
+      'amina@example.com',
+    );
   });
 
   it('refresh restores in-flight status without creating a second transfer', async () => {
@@ -122,17 +139,25 @@ describe('SendMoney duplicate-submission guard', () => {
 
   it('reconciles an accepted transfer after refresh even without its transfer id', async () => {
     const payload = {
-      recipient: 'amina@example.com', from: 'USD', to: 'NGN',
-      sendAmount: 25, receiveAmount: 36642.38, fee: 0.25, rate: 1480.5,
+      recipient: 'amina@example.com',
+      from: 'USD',
+      to: 'NGN',
+      sendAmount: 25,
+      receiveAmount: 36642.38,
+      fee: 0.25,
+      rate: 1480.5,
     };
-    const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
+    const fingerprint = await idempotencyKeyFor(
+      fingerprintTransferPayload(payload),
+    );
     const idempotencyKey = await idempotencyKeyFor(fingerprint, 'prior-intent');
     await api.createTransfer({ ...payload, idempotencyKey });
     saveTransferOperation({ idempotencyKey, fingerprint, status: 'unknown' });
     const spy = vi.spyOn(api, 'createTransfer');
     render(<App />);
-    expect(await screen.findByRole('dialog', { name: /transfer submitted/i }))
-      .toBeInTheDocument();
+    expect(
+      await screen.findByRole('dialog', { name: /transfer submitted/i }),
+    ).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
     expect(getLatestRecoverableOperation()?.status).toBe('succeeded');
   });
@@ -156,6 +181,83 @@ describe('SendMoney duplicate-submission guard', () => {
     expect(
       listed.filter((t) => t.idempotencyKey === 'idem_timeout_reuse'),
     ).toHaveLength(1);
+  });
+
+  it('preserves an unknown intent through storage failure, refresh and retry', async () => {
+    localStorage.setItem(
+      'remitflow.wallet',
+      JSON.stringify({
+        publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
+        balance: 1000,
+      }),
+    );
+    const nativeSetItem = Storage.prototype.setItem;
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (key, value) {
+        if (this === localStorage && key === 'remitflow.transfers') {
+          throw new DOMException(
+            'Storage quota exceeded',
+            'QuotaExceededError',
+          );
+        }
+        return nativeSetItem.call(this, key, value);
+      });
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup();
+    const initial = render(<App />);
+    await fillValidForm(user, '25');
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const confirm = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    await user.click(
+      within(confirm).getByRole('button', { name: /confirm transfer/i }),
+    );
+    await screen.findByText(
+      /the service is temporarily unavailable\. please try again\./i,
+      {},
+      { timeout: 5000 },
+    );
+    expect(
+      screen.queryByRole('dialog', { name: /transfer submitted/i }),
+    ).toBeNull();
+    const failedIntent = getLatestRecoverableOperation();
+    expect(failedIntent.status).toBe('unknown');
+    expect(failedIntent.transferId).toBeNull();
+    expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+
+    initial.unmount();
+    setItem.mockRestore();
+    render(<App />);
+    await screen.findByText(/transfer status is unknown/i);
+    await fillValidForm(user, '25');
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const retry = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    await user.click(
+      within(retry).getByRole('button', { name: /confirm transfer/i }),
+    );
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    expect(createSpy.mock.calls[0][0].idempotencyKey).toBe(
+      failedIntent.idempotencyKey,
+    );
+    expect(createSpy.mock.calls[1][0].idempotencyKey).toBe(
+      failedIntent.idempotencyKey,
+    );
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    expect(
+      stored.filter(
+        (row) => row.idempotencyKey === failedIntent.idempotencyKey,
+      ),
+    ).toHaveLength(1);
+    expect(getLatestRecoverableOperation()?.status).toBe('succeeded');
   });
 
   it('navigation away and back restores the succeeded intent without a second create', async () => {
