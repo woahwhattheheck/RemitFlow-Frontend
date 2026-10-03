@@ -153,105 +153,105 @@ describe('Send money quote freshness', () => {
   });
 
   it.each([
-    { label: "integer balance", amount: "15,00", balance: 100, canonical: "15" },
+    { label: 'integer balance', amount: '15,00', balance: 100, canonical: '15' },
     {
-      label: "exact fractional balance",
-      amount: "25,50",
+      label: 'exact fractional balance',
+      amount: '25,50',
       balance: 25.5,
-      canonical: "25.5",
+      canonical: '25.5',
     },
     {
-      label: "canonical string balance",
-      amount: "15,00",
-      balance: "100.00",
-      canonical: "15",
+      label: 'canonical string balance',
+      amount: '15,00',
+      balance: '100.00',
+      canonical: '15',
     },
   ])(
-    "compares localized input against a connected $label",
+    'compares localized input against a connected $label',
     async ({ amount, balance, canonical }) => {
-      localStorage.setItem("remitflow.transfers", JSON.stringify([]));
-      localStorage.setItem("remitflow:locale", JSON.stringify("pt-BR"));
+      localStorage.setItem('remitflow.transfers', JSON.stringify([]));
+      localStorage.setItem('remitflow:locale', JSON.stringify('pt-BR'));
       localStorage.setItem(
-        "remitflow.wallet",
+        'remitflow.wallet',
         JSON.stringify({
-          publicKey: "GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF",
+          publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
           balance,
         }),
       );
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
 
-      await user.type(screen.getByLabelText(/recipient/i), "amina@example.com");
-      await user.selectOptions(screen.getByLabelText(/^to$/i), "NGN");
+      await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+      await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
       const amountField = screen.getByLabelText(/amount/i);
       await user.type(amountField, amount);
       await user.tab();
       expect(amountField).toHaveValue(amount);
-      await user.click(screen.getByRole("button", { name: /review & send/i }));
+      await user.click(screen.getByRole('button', { name: /review & send/i }));
 
-      const dialog = await screen.findByRole("dialog", {
+      const dialog = await screen.findByRole('dialog', {
         name: /confirm your transfer/i,
       });
-      expect(within(dialog).getByTestId("quote-send-amount")).toHaveTextContent(
+      expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent(
         amount,
       );
       const quoteId = within(dialog)
         .getByText(/transfer summary/i)
-        .closest(".quote-card")
-        .getAttribute("data-quote-id");
+        .closest('.quote-card')
+        .getAttribute('data-quote-id');
       expect(quoteId).toMatch(/^qt_/);
 
       await user.click(
-        within(dialog).getByRole("button", { name: /confirm transfer/i }),
+        within(dialog).getByRole('button', { name: /confirm transfer/i }),
       );
       await screen.findByRole(
-        "dialog",
+        'dialog',
         { name: /transfer submitted/i },
         { timeout: 5000 },
       );
-      const stored = JSON.parse(localStorage.getItem("remitflow.transfers"));
+      const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
       const matching = stored.filter((entry) => entry.quoteId === quoteId);
       expect(matching).toHaveLength(1);
       expect(matching[0]).toMatchObject({
-        recipient: "amina@example.com",
+        recipient: 'amina@example.com',
         sendAmount: canonical,
-        from: "USD",
-        to: "NGN",
+        from: 'USD',
+        to: 'NGN',
       });
     },
   );
 
   it.each([
-    { amount: "100,01", balance: 100 },
-    { amount: "25,51", balance: 25.5 },
+    { amount: '100,01', balance: 100 },
+    { amount: '25,51', balance: 25.5 },
   ])(
-    "rejects localized $amount above connected balance $balance",
+    'rejects localized $amount above connected balance $balance',
     async ({ amount, balance }) => {
-      localStorage.setItem("remitflow:locale", JSON.stringify("pt-BR"));
+      localStorage.setItem('remitflow:locale', JSON.stringify('pt-BR'));
       localStorage.setItem(
-        "remitflow.wallet",
+        'remitflow.wallet',
         JSON.stringify({
-          publicKey: "GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF",
+          publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
           balance,
         }),
       );
-      const createSpy = vi.spyOn(api, "createTransfer");
+      const createSpy = vi.spyOn(api, 'createTransfer');
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<App />);
 
-      await user.type(screen.getByLabelText(/recipient/i), "amina@example.com");
-      await user.selectOptions(screen.getByLabelText(/^to$/i), "NGN");
+      await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+      await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
       await user.type(screen.getByLabelText(/amount/i), amount);
-      await user.click(screen.getByRole("button", { name: /review & send/i }));
+      await user.click(screen.getByRole('button', { name: /review & send/i }));
 
       expect(
-        await screen.findByText("Amount exceeds your wallet balance."),
+        await screen.findByText('Amount exceeds your wallet balance.'),
       ).toBeInTheDocument();
       expect(
-        screen.queryByRole("dialog", { name: /confirm your transfer/i }),
+        screen.queryByRole('dialog', { name: /confirm your transfer/i }),
       ).not.toBeInTheDocument();
       expect(createSpy).not.toHaveBeenCalled();
-      expect(localStorage.getItem("remitflow.transfers")).toBeNull();
+      expect(localStorage.getItem('remitflow.transfers')).toBeNull();
     },
   );
 
