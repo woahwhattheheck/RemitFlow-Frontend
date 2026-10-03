@@ -96,13 +96,20 @@ export default function SendMoney() {
   // must review a fresh price bound to the live inputs.
   useEffect(() => {
     if (phase !== 'confirm' || !pendingQuote) return;
-    const live = assertQuoteSignable(pendingQuote, { amount, from, to }, Date.now());
+    const parsedAmount = parseCurrencyInput(amount, { currency: from, locale });
+    const live = parsedAmount.ok
+      ? assertQuoteSignable(
+          pendingQuote,
+          { amount: parsedAmount.value, from, to },
+          Date.now(),
+        )
+      : { ok: false, reason: parsedAmount.error };
     if (!live.ok && live.code !== 'expired') {
       setPendingQuote(null);
       setPhase(null);
       setSubmitError(live.reason);
     }
-  }, [amount, from, to, phase, pendingQuote]);
+  }, [amount, from, to, locale, phase, pendingQuote]);
 
   // Surface submission failures predictably: announce them and put keyboard
   // focus back on the submit control so a retry is one Enter away.

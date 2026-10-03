@@ -92,6 +92,37 @@ describe('Send money quote freshness', () => {
     expect(createSpy.mock.calls[0][0].quoteId).toMatch(/^qt_/);
   });
 
+  it('keeps a localized amount signable after keyboard review', async () => {
+    localStorage.setItem('remitflow:locale', JSON.stringify('fr-FR'));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<App />);
+
+    await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+    await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
+    await user.type(screen.getByLabelText(/amount/i), '15,00');
+    await user.keyboard('{Enter}');
+
+    const dialog = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    const card = within(dialog).getByText(/transfer summary/i).closest('.quote-card');
+    const quoteId = card.getAttribute('data-quote-id');
+    expect(quoteId).toMatch(/^qt_/);
+    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent('15,00');
+
+    await user.click(within(dialog).getByRole('button', { name: /confirm transfer/i }));
+    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    const transfer = stored.find((entry) => entry.quoteId === quoteId);
+    expect(transfer).toMatchObject({
+      recipient: 'amina@example.com',
+      sendAmount: '15',
+      from: 'USD',
+      to: 'NGN',
+    });
+  });
+
   it('binds the quote id into the createTransfer payload', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const createSpy = vi.spyOn(api, 'createTransfer').mockImplementation(async (payload) => ({
