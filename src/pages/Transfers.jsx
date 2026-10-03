@@ -104,12 +104,12 @@ export default function Transfers() {
   // Pagination state
   const [page, setPage] = useState(1);
 
-  // Reset page and selection when the committed filters change
+  // Reset page and selection when the actor or committed filters change.
   useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
     setSelectAllAcross(false);
-  }, [debouncedSearch, status, range]);
+  }, [actorId, debouncedSearch, status, range]);
 
   // Track connectivity so that a reconnect triggers an automatic reload.
   // The reload reconciles the true status of transfers that may have been
