@@ -20,14 +20,12 @@ export const SNAPSHOT_TTL_MS = 5 * 60_000;
  * @returns {object[]}
  */
 export function stableSortTransfers(transfers) {
-  return (transfers ?? [])
-    .slice()
-    .sort((a, b) => {
-      const aTime = Date.parse(a?.createdAt ?? '') || 0;
-      const bTime = Date.parse(b?.createdAt ?? '') || 0;
-      if (bTime !== aTime) return bTime - aTime;
-      return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
-    });
+  return (transfers ?? []).slice().sort((a, b) => {
+    const aTime = Date.parse(a?.createdAt ?? '') || 0;
+    const bTime = Date.parse(b?.createdAt ?? '') || 0;
+    if (bTime !== aTime) return bTime - aTime;
+    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+  });
 }
 
 /**
@@ -88,9 +86,7 @@ export function encodeCursor(parts) {
     s: parts.snapshotId,
     scope: parts.scope,
     page: parts.page,
-    after: parts.after
-      ? { t: parts.after.createdAt, i: parts.after.id }
-      : null,
+    after: parts.after ? { t: parts.after.createdAt, i: parts.after.id } : null,
   };
   return `c_${toBase64Url(JSON.stringify(payload))}`;
 }
@@ -133,7 +129,8 @@ function toBase64Url(value) {
 
 function fromBase64Url(value) {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+  const pad =
+    padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
   const b64 = padded + pad;
   if (typeof atob === 'function') {
     return decodeURIComponent(escape(atob(b64)));
@@ -154,11 +151,18 @@ export function isCursorInScope(decoded, snapshot, filters, now = Date.now()) {
   if (decoded.scope !== snapshot.scope) return false;
   if (decoded.scope !== filterScopeKey(filters)) return false;
   if (isSnapshotExpired(snapshot, now)) return false;
-  const totalPages = Math.max(1, Math.ceil(snapshot.items.length / snapshot.pageSize));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(snapshot.items.length / snapshot.pageSize),
+  );
   if (decoded.page > totalPages) return false;
-  const prior = snapshot.items[(decoded.page - 1) * snapshot.pageSize - 1] ?? null;
+  const prior =
+    snapshot.items[(decoded.page - 1) * snapshot.pageSize - 1] ?? null;
   if (!prior) return decoded.after === null;
-  return decoded.after?.id === prior.id && decoded.after?.createdAt === prior.createdAt;
+  return (
+    decoded.after?.id === prior.id &&
+    decoded.after?.createdAt === prior.createdAt
+  );
 }
 
 export function isSnapshotExpired(snapshot, now = Date.now()) {
@@ -268,11 +272,21 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
 /**
  * Resolve a page, recovering from expired cursors by minting a fresh snapshot.
  * @param {object[]} filteredTransfers
- * @param {{filters: object, cursor?: string|null, snapshot?: object|null, pageSize?: number, now?: number|Date}} state
+ * @param {{
+ *   filters: object,
+ *   cursor?: string|null,
+ *   snapshot?: object|null,
+ *   pageSize?: number,
+ *   now?: number|Date,
+ *   liveTransfers?: object[],
+ * }} state
  */
 export function resolveTransferPage(filteredTransfers, state = {}) {
   const now = state.now ?? Date.now();
   const filters = state.filters ?? {};
+  // Filters choose snapshot membership; the complete current list supplies
+  // fresh fields even when a retained row no longer matches those filters.
+  const liveTransfers = state.liveTransfers ?? filteredTransfers;
   let snapshot = state.snapshot ?? null;
   let recovered = false;
 
@@ -294,7 +308,7 @@ export function resolveTransferPage(filteredTransfers, state = {}) {
     recovered = Boolean(state.snapshot) || Boolean(state.cursor);
   }
 
-  const page = pageFromSnapshot(snapshot, filteredTransfers, {
+  const page = pageFromSnapshot(snapshot, liveTransfers, {
     cursor: needsNew ? null : state.cursor,
     filters,
     now,
@@ -306,12 +320,16 @@ export function resolveTransferPage(filteredTransfers, state = {}) {
       now,
       pageSize: state.pageSize ?? DEFAULT_PAGE_SIZE,
     });
-    const recoveredPage = pageFromSnapshot(snapshot, filteredTransfers, {
+    const recoveredPage = pageFromSnapshot(snapshot, liveTransfers, {
       cursor: null,
       filters,
       now,
     });
-    return { snapshot, page: { ...recoveredPage, recovered: true }, recovered: true };
+    return {
+      snapshot,
+      page: { ...recoveredPage, recovered: true },
+      recovered: true,
+    };
   }
 
   return { snapshot, page: { ...page, recovered }, recovered };

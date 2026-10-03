@@ -129,11 +129,12 @@ export default function Transfers() {
     }
     return resolveTransferPage(filteredTransfers, {
       filters: filterState,
+      liveTransfers: transfers,
       cursor,
       snapshot,
       pageSize: DEFAULT_PAGE_SIZE,
     });
-  }, [filteredTransfers, filterState, cursor, snapshot, loading]);
+  }, [filteredTransfers, filterState, transfers, cursor, snapshot, loading]);
 
   const pageTransfers = resolved.page.items;
   const totalPages = resolved.page.totalPages;
@@ -141,10 +142,7 @@ export default function Transfers() {
 
   // Persist a newly minted snapshot and surface recovery after an expired cursor.
   useEffect(() => {
-    if (
-      resolved.snapshot &&
-      resolved.snapshot.id !== snapshot?.id
-    ) {
+    if (resolved.snapshot && resolved.snapshot.id !== snapshot?.id) {
       setSnapshot(resolved.snapshot);
     }
     if (resolved.recovered && cursor) {

@@ -43,7 +43,10 @@ describe('transferSnapshot', () => {
 
   it('keeps pages deterministic when new transfers arrive', () => {
     const initial = Array.from({ length: 12 }, (_, i) =>
-      tx(`tx_${String(i).padStart(2, '0')}`, `2026-09-01T10:${String(i).padStart(2, '0')}:00Z`),
+      tx(
+        `tx_${String(i).padStart(2, '0')}`,
+        `2026-09-01T10:${String(i).padStart(2, '0')}:00Z`,
+      ),
     );
     const snapshot = createTransferSnapshot(initial, {
       filters: { search: '', status: '', range: '' },
@@ -65,16 +68,15 @@ describe('transferSnapshot', () => {
     ]);
 
     // Concurrent insert of a newer transfer must not push into page 1 of this snapshot.
-    const withInsert = [
-      tx('tx_new', '2026-09-03T10:00:00Z'),
-      ...initial,
-    ];
+    const withInsert = [tx('tx_new', '2026-09-03T10:00:00Z'), ...initial];
     const page1Again = pageFromSnapshot(snapshot, withInsert, {
       cursor: page1.cursor,
       filters: { search: '', status: '', range: '' },
       now: NOW,
     });
-    expect(page1Again.items.map((t) => t.id)).toEqual(page1.items.map((t) => t.id));
+    expect(page1Again.items.map((t) => t.id)).toEqual(
+      page1.items.map((t) => t.id),
+    );
     expect(page1Again.items.map((t) => t.id)).not.toContain('tx_new');
 
     const page2 = pageFromSnapshot(snapshot, withInsert, {
@@ -96,7 +98,11 @@ describe('transferSnapshot', () => {
       tx(`tx_${i}`, `2026-09-01T10:0${i}:00Z`),
     );
     const filters = { search: '', status: '', range: '' };
-    const snapshot = createTransferSnapshot(rows, { filters, now: NOW, pageSize: 5 });
+    const snapshot = createTransferSnapshot(rows, {
+      filters,
+      now: NOW,
+      pageSize: 5,
+    });
     const first = pageFromSnapshot(snapshot, rows, { filters, now: NOW });
     const filtered = rows.filter((row) => row.id !== 'tx_1');
     const second = pageFromSnapshot(snapshot, filtered, {
@@ -113,11 +119,13 @@ describe('transferSnapshot', () => {
       page: 2,
       after: snapshot.items[0],
     });
-    expect(pageFromSnapshot(snapshot, filtered, {
-      cursor: forged,
-      filters,
-      now: NOW,
-    }).code).toBe('cursor_expired');
+    expect(
+      pageFromSnapshot(snapshot, filtered, {
+        cursor: forged,
+        filters,
+        now: NOW,
+      }).code,
+    ).toBe('cursor_expired');
   });
 
   it('rejects cursors outside the filter scope', () => {
@@ -134,10 +142,20 @@ describe('transferSnapshot', () => {
     });
     const decoded = decodeCursor(cursor);
     expect(
-      isCursorInScope(decoded, snapshot, { search: '', status: 'pending', range: '' }, NOW),
+      isCursorInScope(
+        decoded,
+        snapshot,
+        { search: '', status: 'pending', range: '' },
+        NOW,
+      ),
     ).toBe(false);
     expect(
-      isCursorInScope(decoded, snapshot, { search: '', status: 'completed', range: '' }, NOW),
+      isCursorInScope(
+        decoded,
+        snapshot,
+        { search: '', status: 'completed', range: '' },
+        NOW,
+      ),
     ).toBe(true);
   });
 
@@ -200,7 +218,10 @@ describe('transferSnapshot', () => {
 
   it('pages a large fixture without gaps inside the snapshot', () => {
     const rows = Array.from({ length: 50 }, (_, i) =>
-      tx(`tx_${String(i).padStart(3, '0')}`, `2026-08-01T${String(i % 24).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00Z`),
+      tx(
+        `tx_${String(i).padStart(3, '0')}`,
+        `2026-08-01T${String(i % 24).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00Z`,
+      ),
     );
     let state = resolveTransferPage(rows, {
       filters: { search: '', status: '', range: '' },
@@ -241,5 +262,35 @@ describe('transferSnapshot', () => {
     });
     expect(filled.snapshot.items).toHaveLength(1);
     expect(filled.page.items.map((t) => t.id)).toEqual(['tx_1']);
+  });
+
+  it('refreshes live fields without replacing membership when a row stops matching the filter', () => {
+    const initial = [
+      tx('tx_1', '2026-09-01T10:00:00Z', { status: 'pending' }),
+      tx('tx_2', '2026-09-01T11:00:00Z', { status: 'pending' }),
+    ];
+    const filters = { search: '', status: 'pending', range: '' };
+    const first = resolveTransferPage(initial, { filters, now: NOW });
+    const liveTransfers = [
+      { ...initial[0], status: 'completed' },
+      initial[1],
+      tx('tx_new', '2026-09-02T10:00:00Z', { status: 'pending' }),
+    ];
+
+    const refreshed = resolveTransferPage(
+      liveTransfers.filter((row) => row.status === 'pending'),
+      {
+        filters,
+        liveTransfers,
+        cursor: first.page.cursor,
+        snapshot: first.snapshot,
+        now: NOW + 1000,
+      },
+    );
+
+    expect(refreshed.snapshot.id).toBe(first.snapshot.id);
+    expect(refreshed.page.items.map((row) => row.id)).toEqual(['tx_2', 'tx_1']);
+    expect(refreshed.page.items[1].status).toBe('completed');
+    expect(refreshed.page.totalCount).toBe(2);
   });
 });

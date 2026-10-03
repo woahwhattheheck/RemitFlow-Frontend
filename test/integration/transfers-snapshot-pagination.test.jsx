@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import App from '../../src/App.jsx';
@@ -71,5 +71,30 @@ describe('Transfers snapshot pagination', () => {
 
     expect(await screen.findByText(/page 1 of /i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled();
+  });
+
+  it('refreshes a settled transfer while retaining the pending snapshot membership', async () => {
+    const user = userEvent.setup();
+    const transfers = seedTransfers(12);
+    await gotoTransfers();
+    await user.selectOptions(
+      screen.getByLabelText(/filter by status/i),
+      'pending',
+    );
+
+    const rowName = /transfer to person11@e/i;
+    expect(
+      within(screen.getByRole('group', { name: rowName })).getByText('Pending'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+
+    transfers[11].status = 'completed';
+    localStorage.setItem('remitflow.transfers', JSON.stringify(transfers));
+    await user.click(screen.getByRole('button', { name: /refresh list/i }));
+
+    const refreshedRow = await screen.findByRole('group', { name: rowName });
+    expect(within(refreshedRow).getByText('Completed')).toBeInTheDocument();
+    expect(within(refreshedRow).queryByText('Pending')).not.toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
   });
 });
