@@ -22,6 +22,8 @@ describe('Send money quote freshness', () => {
     localStorage.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-09-24T19:00:00Z'));
+    // Quote scenarios connect successfully unless a rejection case overrides this.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -252,6 +254,93 @@ describe('Send money quote freshness', () => {
       ).not.toBeInTheDocument();
       expect(createSpy).not.toHaveBeenCalled();
       expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+    },
+  );
+
+  it.each([
+    {
+      label: 'rejected connection',
+      amount: '15,00',
+      random: 0,
+      message:
+        'Wallet connection did not complete. Connect your wallet and try again.',
+    },
+    {
+      label: 'newly connected insufficient balance',
+      amount: '1000,01',
+      random: 0.5,
+      message: 'Amount exceeds your wallet balance.',
+    },
+  ])('stops a transfer after a $label', async ({ amount, random, message }) => {
+    localStorage.setItem('remitflow:locale', JSON.stringify('pt-BR'));
+    localStorage.setItem('remitflow.transfers', JSON.stringify([]));
+    vi.spyOn(Math, 'random').mockReturnValue(random);
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<App />);
+
+    await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+    await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
+    await user.type(screen.getByLabelText(/amount/i), amount);
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const dialog = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    await user.click(
+      within(dialog).getByRole('button', { name: /confirm transfer/i }),
+    );
+
+    expect(
+      await screen.findByText(message, { exact: false }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: /transfer submitted/i }),
+    ).not.toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([]);
+    expect(
+      screen.getByRole('button', { name: /review & send/i }),
+    ).not.toBeDisabled();
+  });
+
+  it.each([
+    { amount: '15,00', canonical: '15' },
+    { amount: '1000,00', canonical: '1000' },
+  ])(
+    'checks the returned wallet before saving affordable $amount',
+    async ({ amount, canonical }) => {
+      localStorage.setItem('remitflow:locale', JSON.stringify('pt-BR'));
+      localStorage.setItem('remitflow.transfers', JSON.stringify([]));
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+
+      await user.type(screen.getByLabelText(/recipient/i), 'amina@example.com');
+      await user.selectOptions(screen.getByLabelText(/^to$/i), 'NGN');
+      await user.type(screen.getByLabelText(/amount/i), amount);
+      await user.click(screen.getByRole('button', { name: /review & send/i }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /confirm your transfer/i,
+      });
+      const quoteId = within(dialog)
+        .getByText(/transfer summary/i)
+        .closest('.quote-card')
+        .getAttribute('data-quote-id');
+      await user.click(
+        within(dialog).getByRole('button', { name: /confirm transfer/i }),
+      );
+      await screen.findByRole(
+        'dialog',
+        { name: /transfer submitted/i },
+        { timeout: 5000 },
+      );
+
+      expect(JSON.parse(localStorage.getItem('remitflow.wallet')).balance).toBe(
+        1000,
+      );
+      expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([
+        expect.objectContaining({ quoteId, sendAmount: canonical }),
+      ]);
     },
   );
 
