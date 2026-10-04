@@ -1,0 +1,34 @@
+name: Snapshot sort focused check
+
+on:
+  push:
+    branches: [verify/rf297-snapshot-sort-a2f7]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot-sort:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2ae93359afb19092961f328377955106259251d4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund --fetch-retries=0 --fetch-timeout=20000
+      - name: Check the two changed JavaScript files
+        run: npx --no-install prettier --check src/utils/transferSnapshot.js test/unit/transfer-snapshot-sort.test.js
+      - name: Run the existing snapshot cases and two sort regressions
+        run: npx --no-install vitest run test/unit/transfer-snapshot.test.js test/unit/transfer-snapshot-sort.test.js --maxWorkers=1 --fileParallelism=false
+      - name: Build the production application
+        run: npm run build
+      - name: Record source identities and check for tracked mutations
+        run: |
+          git rev-parse HEAD
+          git hash-object src/utils/transferSnapshot.js test/unit/transfer-snapshot-sort.test.js
+          git diff --exit-code
