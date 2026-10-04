@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Link,
+  useLocation,
+  useNavigationType,
+  useSearchParams,
+} from 'react-router-dom';
 import Chart from '../components/Chart.jsx';
 import { formatMoney, parseDecimal } from '../utils/money.js';
 import { TRANSFER_STATUSES } from '../services/contracts/transfer.js';
@@ -13,7 +25,6 @@ import Pagination from '../components/Pagination.jsx';
 import PullToRefresh from '../components/PullToRefresh.jsx';
 import SelectionToolbar from '../components/SelectionToolbar.jsx';
 import { useTransfers } from '../hooks/useTransfers.js';
-import { useDebouncedValue } from '../hooks/useDebouncedValue.js';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.js';
 import { useApp } from '../context/AppContext.jsx';
 import { DATE_RANGE_PRESETS } from '../utils/dateRange.js';
@@ -47,6 +58,8 @@ export default function Transfers() {
   const actorId = wallet?.publicKey || DEMO_PUBLIC_KEY;
   const isOnline = useOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigationType = useNavigationType();
 
   // Becomes true while the browser is offline, then flips back to false the
   // moment connectivity returns so we can reconcile transfers against the
@@ -58,37 +71,57 @@ export default function Transfers() {
   const range = searchParams.get('range') || '';
   const urlSearch = searchParams.get('search') || '';
 
-  // Draft input updates immediately; the debounced value drives URL + query.
+  // Only a user edit may schedule a URL write. Navigation is authoritative.
   const [searchDraft, setSearchDraft] = useState(urlSearch);
-  const debouncedSearch = useDebouncedValue(searchDraft, SEARCH_DEBOUNCE_MS);
+  const pendingSearch = useRef(null);
 
-  // Keep draft aligned when the URL changes externally (back/forward, clear).
-  useEffect(() => {
-    setSearchDraft(urlSearch);
-  }, [urlSearch]);
+  useLayoutEffect(() => {
+    const pending = pendingSearch.current;
+    // POP also retires a draft when history changes only status/range.
+    // Local filter controls use PUSH and may preserve an unfinished edit.
+    if (
+      navigationType === 'POP' ||
+      !pending ||
+      pending.baseSearch !== urlSearch
+    ) {
+      pendingSearch.current = null;
+      setSearchDraft(urlSearch);
+    }
+  }, [urlSearch, location.key, location.search, navigationType]);
 
-  // Publish debounced search into the URL so shareable links stay accurate.
   useEffect(() => {
-    setSearchParams(
-      (prev) => {
-        const current = prev.get('search') || '';
-        if (current === debouncedSearch) return prev;
-        const next = new URLSearchParams(prev);
-        if (debouncedSearch) next.set('search', debouncedSearch);
-        else next.delete('search');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [debouncedSearch, setSearchParams]);
+    const pending = pendingSearch.current;
+    if (
+      !pending ||
+      pending.value !== searchDraft ||
+      pending.baseSearch !== urlSearch
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (pendingSearch.current !== pending) return;
+      pendingSearch.current = null;
+      setSearchParams(
+        (prev) => {
+          if ((prev.get('search') || '') !== pending.baseSearch) return prev;
+          const next = new URLSearchParams(prev);
+          if (pending.value) next.set('search', pending.value);
+          else next.delete('search');
+          return next;
+        },
+        { replace: true },
+      );
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchDraft, urlSearch, setSearchParams]);
 
   const queryFilters = useMemo(
     () => ({
-      search: debouncedSearch,
+      search: urlSearch,
       status,
       range,
     }),
-    [debouncedSearch, status, range],
+    [urlSearch, status, range],
   );
 
   const { transfers, loading, error, reload } = useTransfers({
@@ -109,7 +142,7 @@ export default function Transfers() {
     setPage(1);
     setSelectedIds(new Set());
     setSelectAllAcross(false);
-  }, [actorId, debouncedSearch, status, range]);
+  }, [actorId, urlSearch, status, range]);
 
   // Track connectivity so that a reconnect triggers an automatic reload.
   // The reload reconciles the true status of transfers that may have been
@@ -146,9 +179,15 @@ export default function Transfers() {
     : selectedIds.size;
   const hasMorePages = totalPages > 1;
 
-  const handleSearchChange = useCallback((e) => {
-    setSearchDraft(e.target.value);
-  }, []);
+  const handleSearchChange = useCallback(
+    (e) => {
+      const value = e.target.value;
+      pendingSearch.current =
+        value === urlSearch ? null : { value, baseSearch: urlSearch };
+      setSearchDraft(value);
+    },
+    [urlSearch],
+  );
 
   const handleStatusChange = useCallback(
     (e) => {
@@ -174,7 +213,7 @@ export default function Transfers() {
     [setSearchParams],
   );
 
-  const hasActiveFilters = Boolean(debouncedSearch || status || range);
+  const hasActiveFilters = Boolean(urlSearch || status || range);
 
   // Selection handlers
   const handleToggleSelect = useCallback((id) => {
@@ -215,6 +254,7 @@ export default function Transfers() {
   }, []);
 
   const handleClearFilters = useCallback(() => {
+    pendingSearch.current = null;
     setSearchDraft('');
     setSearchParams({});
   }, [setSearchParams]);
