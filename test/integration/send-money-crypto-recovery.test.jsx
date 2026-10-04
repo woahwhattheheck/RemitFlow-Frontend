@@ -155,7 +155,9 @@ describe('SendMoney legacy recovery boundary', () => {
     await user.click(screen.getByRole('button', { name: /review & send/i }));
     const dialog = await screen.findByRole('dialog', { name: /confirm your transfer/i });
     await user.click(within(dialog).getByRole('button', { name: /confirm transfer/i }));
-    expect(await screen.findByText(new LegacyTransferOperationError().message)).toBeInTheDocument();
+    expect(
+      await screen.findByText(`⚠️ ${new LegacyTransferOperationError().message}`),
+    ).toBeInTheDocument();
     expect(create).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBe(before);
     expect(getTransferOperation(legacy.idempotencyKey)).toMatchObject(legacy);

@@ -226,8 +226,14 @@ export default function SendMoney() {
     submissionLock.current = true;
     setSubmitting(true);
     try {
-      if (!isConnected) {
-        await connect();
+      const transferWallet = isConnected ? wallet : await connect();
+      if (!transferWallet) {
+        setSubmitError(
+          'Wallet connection did not complete. Connect your wallet and try again.',
+        );
+        setPendingQuote(null);
+        setPhase(null);
+        return;
       }
 
       // Rebuild at confirmation time so the committed amounts match the note:
@@ -246,6 +252,18 @@ export default function SendMoney() {
         setSubmitError(
           'We could not price this transfer. Check the amount and the selected currencies.',
         );
+        return;
+      }
+
+      // A wallet connected here was unavailable during the form's balance check.
+      if (
+        !isWithinBalance(finalQuote.sendAmount, transferWallet.balance, {
+          currency: finalQuote.from,
+        })
+      ) {
+        setSubmitError('Amount exceeds your wallet balance.');
+        setPendingQuote(null);
+        setPhase(null);
         return;
       }
 

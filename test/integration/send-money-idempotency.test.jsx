@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
 import * as api from '../../src/services/api.js';
+import * as walletService from '../../src/services/wallet.js';
 import { buildQuote } from '../../src/services/quote.js';
 import {
   fingerprintTransferPayload,
@@ -49,6 +50,8 @@ describe('SendMoney duplicate-submission guard', () => {
     localStorage.clear();
     window.history.pushState({}, '', '/send');
     vi.restoreAllMocks();
+    // Existing success paths need a deterministic accepted demo connection.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -569,6 +572,159 @@ describe('SendMoney duplicate-submission guard', () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
     expect(getLatestRecoverableOperation()).toMatchObject({
       idempotencyKey: recoverable.idempotencyKey,
+      status: 'succeeded',
+    });
+  });
+});
+
+describe('SendMoney wallet admission before intent persistence', () => {
+  const account = {
+    publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
+    balance: '25.50',
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+    localStorage.clear();
+    window.history.pushState({}, '', '/send');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
+
+  async function waitForConfirmationToSettle() {
+    await waitFor(
+      () => {
+        expect(
+          screen.queryAllByRole('button', { name: /sending/i }),
+        ).toHaveLength(0);
+      },
+      { timeout: 3000 },
+    );
+  }
+
+  it.each([
+    [
+      'rejected connection',
+      () => Promise.reject(new Error('User rejected the connection request')),
+    ],
+    ['incomplete connection', () => Promise.resolve(undefined)],
+    [
+      'insufficient newly connected balance',
+      () => Promise.resolve({ ...account, balance: '25.49' }),
+    ],
+  ])(
+    'refuses %s without creating a transfer or operation',
+    async (_name, connect) => {
+      const connectSpy = vi
+        .spyOn(walletService, 'connectWallet')
+        .mockImplementation(connect);
+      const createSpy = vi.spyOn(api, 'createTransfer');
+      const user = userEvent.setup();
+      render(<App />);
+      await fillValidForm(user, '25.50');
+      await confirmCurrentForm(user);
+      await waitForConfirmationToSettle();
+
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+      expect(sessionStorage.getItem(RECOVERY_STORAGE_KEY)).toBeNull();
+      expect(
+        screen.queryByRole('dialog', { name: /transfer submitted/i }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole('dialog', { name: /confirm your transfer/i }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('button', { name: /review & send/i }),
+      ).toBeEnabled();
+      expect(
+        screen.getByText(
+          /wallet connection did not complete|amount exceeds your wallet balance/i,
+        ),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('admits an exact fractional balance and records one succeeded intent', async () => {
+    vi.spyOn(walletService, 'connectWallet').mockResolvedValue(account);
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup();
+    render(<App />);
+    await fillValidForm(user, '25.50');
+    await confirmCurrentForm(user);
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 3000 },
+    );
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy.mock.calls[0][0].sendAmount).toBe('25.5');
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    const created = stored.filter((transfer) => transfer.idempotencyKey);
+    expect(created).toHaveLength(1);
+    expect(getLatestRecoverableOperation()).toMatchObject({
+      idempotencyKey: created[0].idempotencyKey,
+      transferId: created[0].id,
+      status: 'succeeded',
+    });
+  });
+
+  it('preserves an unknown intent on wallet refusal and reuses its key on explicit retry', async () => {
+    const quote = buildQuote('25.5', 'USD', 'NGN');
+    const fingerprint = await idempotencyKeyFor(
+      fingerprintTransferPayload({
+        recipient: 'amina@example.com',
+        from: 'USD',
+        to: 'NGN',
+        sendAmount: quote.sendAmount,
+        receiveAmount: quote.receiveAmount,
+        fee: quote.fee,
+        rate: quote.rate,
+      }),
+    );
+    const idempotencyKey = await idempotencyKeyFor(
+      fingerprint,
+      'wallet-refusal-control',
+    );
+    saveTransferOperation({ idempotencyKey, fingerprint, status: 'unknown' });
+    const priorJournal = sessionStorage.getItem(RECOVERY_STORAGE_KEY);
+    const connectSpy = vi
+      .spyOn(walletService, 'connectWallet')
+      .mockRejectedValueOnce(new Error('User rejected the connection request'))
+      .mockResolvedValueOnce(account);
+    const createSpy = vi.spyOn(api, 'createTransfer');
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText(/transfer status is unknown/i);
+    await fillValidForm(user, '25.50');
+    await confirmCurrentForm(user);
+    await waitForConfirmationToSettle();
+
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(localStorage.getItem('remitflow.transfers')).toBeNull();
+    expect(sessionStorage.getItem(RECOVERY_STORAGE_KEY)).toBe(priorJournal);
+    await confirmCurrentForm(user);
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 3000 },
+    );
+
+    expect(connectSpy).toHaveBeenCalledTimes(2);
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy.mock.calls[0][0].idempotencyKey).toBe(idempotencyKey);
+    const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
+    expect(stored.filter((transfer) => transfer.idempotencyKey)).toHaveLength(
+      1,
+    );
+    expect(getLatestRecoverableOperation()).toMatchObject({
+      idempotencyKey,
       status: 'succeeded',
     });
   });
