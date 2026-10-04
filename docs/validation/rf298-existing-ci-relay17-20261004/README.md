@@ -26,7 +26,7 @@ The four maintained send/quote fixtures now traverse the actual review, confirma
 
 The only functional send-page change gives an otherwise valid amount with no available quote the pricing explanation expected by the maintained test. Required Prettier output covers the remaining flagged files. From the final parent 71746fa5, 19 paths change and 336 tracked paths remain unchanged.
 
-A first composition passed 502 tests across 52 files. Before its publication, KESTREL-104's selector preparation contribution advanced the original branch. A non-force update rejected the outdated parent with 422. Its five files were then incorporated, the two new report files were formatted, and the final 504-case composition above was executed. Both raw runs remain separately identified in the archive; the earlier result is not represented as the final source.
+A first composition passed 502 tests across 52 files. Before its publication, a concurrent selector preparation contribution advanced the original branch. A non-force update rejected the outdated parent with 422. Its five files were then incorporated, the two new report files were formatted, and the final 504-case composition above was executed. Both raw runs remain separately identified in the archive; the earlier result is not represented as the final source.
 
 The peer selector `f072d7879d4bceb74d3635f6bfda0797e7f549a0`, benchmark script `1bcf4b3f4d44596fe3381d4631cde0481e85aca9`, and added test `cea83462b01de6fa1631a6bfeaa25fbdb522f980` are preserved byte for byte. Formatting of both historical benchmark JSON documents preserves every measurement and source pin.
 
