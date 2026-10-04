@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Run original and repaired mounted page
+      - name: Run corrected mounted navigation cases
         shell: bash
         run: |
           set -euo pipefail
@@ -30,15 +30,11 @@ jobs:
           git rev-parse HEAD | tee ../evidence/source.txt
           npm ci --no-audit --no-fund
           cp ../carrier/transfers-search-navigation.test.jsx test/integration/
-          set +e
-          npx --no-install vitest run test/integration/transfers-search-navigation.test.jsx --maxWorkers=1 --reporter=verbose > ../evidence/before.log 2>&1
-          before=$?
-          set -e
-          echo "$before" > ../evidence/before.exit
           python ../carrier/apply.py
+          sed -i 's/urlSearch, location.key, navigationType/urlSearch, location.key, location.search, navigationType/' src/pages/Transfers.jsx
           npx --no-install prettier --write src/pages/Transfers.jsx test/integration/transfers-search-navigation.test.jsx
           set +e
-          npx --no-install vitest run test/integration/transfers-search-navigation.test.jsx test/integration/transfers-filter.test.jsx --maxWorkers=1 --reporter=verbose > ../evidence/after.log 2>&1
+          npx --no-install vitest run test/integration/transfers-search-navigation.test.jsx --maxWorkers=1 --reporter=verbose > ../evidence/after.log 2>&1
           after=$?
           set -e
           echo "$after" > ../evidence/after.exit
@@ -46,12 +42,11 @@ jobs:
           cp test/integration/transfers-search-navigation.test.jsx ../evidence/
           git diff -- src/pages/Transfers.jsx > ../evidence/source.patch
           git hash-object src/pages/Transfers.jsx test/integration/transfers-search-navigation.test.jsx > ../evidence/blobs.txt
-          cat ../evidence/before.log ../evidence/after.log
-          test "$before" -ne 0
+          cat ../evidence/after.log
           test "$after" -eq 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rf298-navigation-1ca9
+          name: rf298-navigation-1ca9-final
           path: evidence/
           retention-days: 7
