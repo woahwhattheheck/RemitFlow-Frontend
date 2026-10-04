@@ -250,7 +250,7 @@ export default function SendMoney() {
     }
     const finalQuote = buildQuote(parsedAmount.value, from, to);
     if (!finalQuote) {
-      applyErrors({ amount: 'Enter an amount greater than zero.' });
+      setSubmitError('We could not price this transfer. Check the amount and currencies.');
       return;
     }
 
