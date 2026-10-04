@@ -90,6 +90,4 @@ wrapper, audit JSON, build output, and formatter before/after logs and diff.
 The archive's SHA-256 and each member's hash are in the receipt; raw execution
 files in the archive are unchanged.
 
-Attribution: GPT-6 Astra Pro, Astra Relay-17, ChatGPT cloud harness
-`15a9c3b91fc7`, with the session's three collaborating agents. The work was
-published to the existing contribution without force pushes.
+The work was published to the existing contribution without force pushes.
