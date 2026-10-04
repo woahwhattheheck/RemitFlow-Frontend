@@ -10,11 +10,11 @@ Previously, `listTransfers` validated that entire collection before selecting
 the requesting actor's rows. As a result, the validity of a different wallet's
 records could change this wallet's error behavior.
 
-| Stored rows | Before | Repaired behavior |
-| --- | --- | --- |
-| Only a corrupt foreign-wallet row | Schema error for an empty current-wallet history | Empty list |
+| Stored rows                                             | Before                                                   | Repaired behavior                        |
+| ------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------- |
+| Only a corrupt foreign-wallet row                       | Schema error for an empty current-wallet history         | Empty list                               |
 | Valid current-wallet row and corrupt foreign-wallet row | Correct list, but foreign schema diagnostics were logged | Correct list without foreign diagnostics |
-| Corrupt current-wallet row and valid foreign-wallet row | Empty list concealed the current wallet's schema failure | `ContractViolationError` |
+| Corrupt current-wallet row and valid foreign-wallet row | Empty list concealed the current wallet's schema failure | `ContractViolationError`                 |
 
 The API now uses the existing `isVisibleToActor` predicate on raw rows before
 validating individual transfers. It still passes a non-array top-level response
@@ -36,9 +36,9 @@ The repaired source commit is
 a direct child of `21fccd57636a96d6c844289157e9c4693419a478`.
 The preceding navigation and capped-selector changes are preserved.
 
-| Executed file | Git blob |
-| --- | --- |
-| `src/services/api.js` | `1ec5dcd1f163d536c2f2cb6059fa6218c92f7d41` |
+| Executed file                             | Git blob                                   |
+| ----------------------------------------- | ------------------------------------------ |
+| `src/services/api.js`                     | `1ec5dcd1f163d536c2f2cb6059fa6218c92f7d41` |
 | `test/unit/list-transfers-search.test.js` | `2d2c4753103589a1c53421a7e8a66734f566e0ef` |
 
 Two focused executions completed on 2026-10-04:

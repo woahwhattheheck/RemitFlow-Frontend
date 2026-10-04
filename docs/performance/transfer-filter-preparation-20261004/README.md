@@ -16,13 +16,13 @@ The original repository Vite configuration, jsdom setup and locked dependencies 
 
 Synthetic histories; three warmups followed by nine paired samples with alternating order. Fixture creation, assertions, garbage collection and operation counting are outside the timed selector call. All paired outputs and row references matched; a further 10,368 untimed compatibility comparisons passed.
 
-| Workload | Baseline ms | Prepared ms | Time reduction |
-| --- | ---: | ---: | ---: |
-| 5k all time | 3.753 | 3.100 | 17.40% |
-| 100k all time | 38.884 | 30.025 | 22.78% |
-| 100k date window | 77.677 | 41.512 | 46.56% |
-| 100k status and search | 23.599 | 20.468 | 13.27% |
-| 100k combined filters | 37.811 | 26.264 | 30.54% |
+| Workload               | Baseline ms | Prepared ms | Time reduction |
+| ---------------------- | ----------: | ----------: | -------------: |
+| 5k all time            |       3.753 |       3.100 |         17.40% |
+| 100k all time          |      38.884 |      30.025 |         22.78% |
+| 100k date window       |      77.677 |      41.512 |         46.56% |
+| 100k status and search |      23.599 |      20.468 |         13.27% |
+| 100k combined filters  |      37.811 |      26.264 |         30.54% |
 
 All raw paired samples, output digests, source Git blobs and separately measured operation counts are in [results.json](results.json). Negative reductions, if present, are regressions, not speedups. These measurements exclude localStorage decoding, schema validation, the simulated API delay, React rendering and network/provider work; they are not whole-page or fleet-throughput results.
 

@@ -20,12 +20,12 @@ measurements, alternating execution order after one warmup per version.
 Fixtures, garbage collection and output assertions were outside the timed
 call. The timed function is the actual imported `applyTransferSearch`.
 
-| History | Result cap | Before, ms | After, ms | Speedup |
-| --- | ---: | ---: | ---: | ---: |
-| 5,000 shuffled transfers | 100 | 22.827 | 2.484 | 9.19x |
-| 100,000 shuffled transfers | 100 | 776.075 | 26.912 | 28.84x |
-| 100,000 oldest-first transfers | 500 | 44.631 | 31.982 | 1.40x |
-| 100,000 newest-first transfers | 500 | 46.296 | 25.439 | 1.82x |
+| History                        | Result cap | Before, ms | After, ms | Speedup |
+| ------------------------------ | ---------: | ---------: | --------: | ------: |
+| 5,000 shuffled transfers       |        100 |     22.827 |     2.484 |   9.19x |
+| 100,000 shuffled transfers     |        100 |    776.075 |    26.912 |  28.84x |
+| 100,000 oldest-first transfers |        500 |     44.631 |    31.982 |   1.40x |
+| 100,000 newest-first transfers |        500 |     46.296 |    25.439 |   1.82x |
 
 Every timed result matched the baseline's complete return value and original
 row references. The 100,000-row shuffled case reduced `Date.parse` calls from
@@ -77,10 +77,10 @@ path selects a different candidate module. It asserts complete baseline
 equivalence for every sample and reports both input source hashes. The
 baseline staging file is temporary and is not part of the contribution.
 
-| Executed source | Git blob |
-| --- | --- |
-| Baseline selector | `be8db651d5c2457323d6f8373a170a41d8b99b87` |
-| Updated selector | `a75e2e4fe88e16cb0b03ed97aa0a1c18dbba1274` |
+| Executed source      | Git blob                                   |
+| -------------------- | ------------------------------------------ |
+| Baseline selector    | `be8db651d5c2457323d6f8373a170a41d8b99b87` |
+| Updated selector     | `a75e2e4fe88e16cb0b03ed97aa0a1c18dbba1274` |
 | Maintained unit file | `22be7a01462fd6a612d40cdc9e34f0c9f1f443ea` |
 
 The original contribution and claim remain unchanged. This is performance

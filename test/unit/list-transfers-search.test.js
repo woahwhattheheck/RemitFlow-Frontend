@@ -85,7 +85,11 @@ describe('listTransfers search / cancellation / scope', () => {
       const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
       seed([
         ...ownRows,
-        transfer({ id: 'tx_foreign', actorId: 'GOTHERWALLET', recipient: null }),
+        transfer({
+          id: 'tx_foreign',
+          actorId: 'GOTHERWALLET',
+          recipient: null,
+        }),
       ]);
 
       const pending = api.listTransfers({ actorId: DEMO_PUBLIC_KEY });

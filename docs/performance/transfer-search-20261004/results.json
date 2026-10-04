@@ -49,15 +49,11 @@
       "speedup": 9.190602056982748,
       "baselineOperations": {
         "dateParseCalls": 110108,
-        "sortedLengths": [
-          5000
-        ]
+        "sortedLengths": [5000]
       },
       "candidateOperations": {
         "dateParseCalls": 5000,
-        "sortedLengths": [
-          100
-        ]
+        "sortedLengths": [100]
       },
       "identicalResults": true
     },
@@ -92,15 +88,11 @@
       "speedup": 28.837778470577426,
       "baselineOperations": {
         "dateParseCalls": 3031310,
-        "sortedLengths": [
-          100000
-        ]
+        "sortedLengths": [100000]
       },
       "candidateOperations": {
         "dateParseCalls": 100000,
-        "sortedLengths": [
-          100
-        ]
+        "sortedLengths": [100]
       },
       "identicalResults": true
     },
@@ -135,15 +127,11 @@
       "speedup": 1.3955117549015998,
       "baselineOperations": {
         "dateParseCalls": 199998,
-        "sortedLengths": [
-          100000
-        ]
+        "sortedLengths": [100000]
       },
       "candidateOperations": {
         "dateParseCalls": 100000,
-        "sortedLengths": [
-          500
-        ]
+        "sortedLengths": [500]
       },
       "identicalResults": true
     },
@@ -178,15 +166,11 @@
       "speedup": 1.8198750483163826,
       "baselineOperations": {
         "dateParseCalls": 199998,
-        "sortedLengths": [
-          100000
-        ]
+        "sortedLengths": [100000]
       },
       "candidateOperations": {
         "dateParseCalls": 100000,
-        "sortedLengths": [
-          500
-        ]
+        "sortedLengths": [500]
       },
       "identicalResults": true
     }

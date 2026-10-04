@@ -133,7 +133,13 @@ describe('transferSearch scope and filters', () => {
     const now = new Date('2026-06-08T12:00:00Z');
     const queries = [
       ...[1, 7, 100, 500, 9999].map((limit) => ({ actorId: ACTOR, limit })),
-      { actorId: ACTOR, search: ' AMINA ', status: 'completed', range: '7d', limit: 7 },
+      {
+        actorId: ACTOR,
+        search: ' AMINA ',
+        status: 'completed',
+        range: '7d',
+        limit: 7,
+      },
       { actorId: OTHER, status: 'pending', limit: 1 },
       { actorId: ACTOR, search: 'absent', limit: 100 },
     ];
@@ -159,15 +165,34 @@ describe('transferSearch scope and filters', () => {
   it('preserves zero-time ordering, Unicode ties and sparse legacy histories', () => {
     const rows = new Array(12);
     rows[1] = tx({ id: 'tx_\u00e9', actorId: undefined, createdAt: 'invalid' });
-    rows[3] = tx({ id: 'tx_e\u0301', actorId: undefined, createdAt: undefined });
-    rows[4] = tx({ id: 'tx_z', actorId: undefined, createdAt: '1970-01-01T00:00:00Z' });
-    rows[5] = tx({ id: 'tx_z', actorId: undefined, createdAt: 'invalid', sendAmount: '200' });
-    rows[7] = tx({ id: 'tx_z', actorId: undefined, createdAt: '1969-12-31T00:00:00Z' });
+    rows[3] = tx({
+      id: 'tx_e\u0301',
+      actorId: undefined,
+      createdAt: undefined,
+    });
+    rows[4] = tx({
+      id: 'tx_z',
+      actorId: undefined,
+      createdAt: '1970-01-01T00:00:00Z',
+    });
+    rows[5] = tx({
+      id: 'tx_z',
+      actorId: undefined,
+      createdAt: 'invalid',
+      sendAmount: '200',
+    });
+    rows[7] = tx({
+      id: 'tx_z',
+      actorId: undefined,
+      createdAt: '1969-12-31T00:00:00Z',
+    });
     rows[9] = tx({ id: 'tx_new', actorId: OTHER });
     for (const limit of [1, 3, 4, 100]) {
       const query = { actorId: LEGACY, limit };
       const options = { legacyActorId: LEGACY };
-      const matched = rows.filter((row) => isVisibleToActor(row, LEGACY, options));
+      const matched = rows.filter((row) =>
+        isVisibleToActor(row, LEGACY, options),
+      );
       const expected = stableSortTransfers(matched).slice(0, limit);
       const result = applyTransferSearch(rows, query, options);
       expect(result.items).toEqual(expected);

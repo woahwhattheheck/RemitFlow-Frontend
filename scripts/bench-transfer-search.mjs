@@ -9,7 +9,9 @@ const args = process.argv.slice(2);
 const baselinePath = args[0];
 const candidatePath = args[1] ?? 'src/utils/transferSearch.js';
 if (!baselinePath) {
-  throw new Error('Usage: node --expose-gc bench-transfer-search.mjs BASELINE [CANDIDATE]');
+  throw new Error(
+    'Usage: node --expose-gc bench-transfer-search.mjs BASELINE [CANDIDATE]',
+  );
 }
 const before = await import(pathToFileURL(resolve(baselinePath)).href);
 const after = await import(pathToFileURL(resolve(candidatePath)).href);
@@ -26,8 +28,12 @@ function blob(path) {
 
 function fixture(count, order) {
   return Array.from({ length: count }, (_, i) => {
-    const rank = order === 'shuffled' ? (i * 7919) % count :
-      order === 'ascending' ? i : count - i - 1;
+    const rank =
+      order === 'shuffled'
+        ? (i * 7919) % count
+        : order === 'ascending'
+          ? i
+          : count - i - 1;
     return {
       id: `tx_${i}`,
       actorId: 'GACTOR_A',
@@ -72,12 +78,22 @@ function median(values) {
 }
 
 const report = {
-  runtime: { node: process.version, platform: process.platform, arch: process.arch },
-  sources: { baselineBlob: blob(baselinePath), candidateBlob: blob(candidatePath) },
+  runtime: {
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  },
+  sources: {
+    baselineBlob: blob(baselinePath),
+    candidateBlob: blob(candidatePath),
+  },
   method: {
-    rounds, warmupsPerVersion: 1, order: 'alternating before/after',
+    rounds,
+    warmupsPerVersion: 1,
+    order: 'alternating before/after',
     gcBeforeEachSample: Boolean(global.gc),
-    timingIncludes: 'actual applyTransferSearch only; fixtures/assertions outside timing',
+    timingIncludes:
+      'actual applyTransferSearch only; fixtures/assertions outside timing',
     operationCounts: 'separate untimed production calls',
     providerRequests: 0,
   },
@@ -98,11 +114,16 @@ for (const [count, order, limit] of [
     const calls = round % 2 === 0 ? ['before', 'after'] : ['after', 'before'];
     const pair = {};
     for (const name of calls) {
-      const fn = name === 'before' ? before.applyTransferSearch : after.applyTransferSearch;
+      const fn =
+        name === 'before'
+          ? before.applyTransferSearch
+          : after.applyTransferSearch;
       const sample = measure(fn, rows, query);
       assert.deepEqual(sample.result, expected);
       assert.equal(sample.result.totalMatched, count);
-      sample.result.items.forEach((row, i) => assert.equal(row, expected.items[i]));
+      sample.result.items.forEach((row, i) =>
+        assert.equal(row, expected.items[i]),
+      );
       pair[name] = sample.ms;
     }
     samples.push(pair);
@@ -110,10 +131,23 @@ for (const [count, order, limit] of [
   const baselineMedianMs = median(samples.map((pair) => pair.before));
   const candidateMedianMs = median(samples.map((pair) => pair.after));
   report.scenarios.push({
-    count, order, limit, samples, baselineMedianMs, candidateMedianMs,
+    count,
+    order,
+    limit,
+    samples,
+    baselineMedianMs,
+    candidateMedianMs,
     speedup: baselineMedianMs / candidateMedianMs,
-    baselineOperations: countOperations(before.applyTransferSearch, rows, query),
-    candidateOperations: countOperations(after.applyTransferSearch, rows, query),
+    baselineOperations: countOperations(
+      before.applyTransferSearch,
+      rows,
+      query,
+    ),
+    candidateOperations: countOperations(
+      after.applyTransferSearch,
+      rows,
+      query,
+    ),
     identicalResults: true,
   });
 }
