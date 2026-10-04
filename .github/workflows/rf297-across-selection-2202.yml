@@ -1,4 +1,4 @@
-name: RF297 focused across-page selection
+name: RF297 focused date-filter continuation
 on:
   push:
     branches: [verify/rf297-across-selection-2202]
@@ -9,15 +9,15 @@ concurrency:
   group: rf297-across-selection-2202
   cancel-in-progress: false
 jobs:
-  selection:
+  filters:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SOURCE: 6ed4086fa9520c36639b5419a42145951a16cd9a
+      SOURCE: 9f1debe8fb5ba5f79fc6fe83349d4264faa7b13b
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 6ed4086fa9520c36639b5419a42145951a16cd9a
+          ref: 9f1debe8fb5ba5f79fc6fe83349d4264faa7b13b
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -25,37 +25,37 @@ jobs:
           node-version: '24'
       - name: Install unchanged locked dependencies
         run: npm ci --no-audit --no-fund
-      - name: Run repaired maintained selection file
+      - name: Run existing mounted filter cases
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/rf297-selection"
-          ./node_modules/.bin/vitest run test/integration/select-all-across-pages.test.jsx --reporter=json --outputFile="$RUNNER_TEMP/rf297-selection/repaired.json" > "$RUNNER_TEMP/rf297-selection/repaired.log" 2>&1
-          cat "$RUNNER_TEMP/rf297-selection/repaired.log"
+          mkdir -p "$RUNNER_TEMP/rf297-filters"
+          ./node_modules/.bin/vitest run test/integration/transfers-filter.test.jsx --reporter=json --outputFile="$RUNNER_TEMP/rf297-filters/results.json" > "$RUNNER_TEMP/rf297-filters/tests.log" 2>&1
+          cat "$RUNNER_TEMP/rf297-filters/tests.log"
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
-          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-selection/repaired.json`, 'utf8'));
+          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-filters/results.json`, 'utf8'));
           const results = data.testResults.flatMap((suite) => suite.assertionResults);
           console.log(results.map(({ fullName, status }) => ({ fullName, status })));
-          assert.equal(results.length, 5);
+          assert.equal(results.length, 8);
           assert.ok(results.every((result) => result.status === 'passed'));
-          console.log('Final composed source: all five maintained selection cases pass, none skipped.');
+          console.log('All eight unchanged filter cases pass, none skipped.');
           JS
           git diff --exit-code
           {
             git rev-parse HEAD
-            git hash-object src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx src/utils/transferSnapshot.js
+            git hash-object src/utils/dateRange.js test/integration/transfers-filter.test.jsx
             node --version
             npm --version
-          } | tee "$RUNNER_TEMP/rf297-selection/source.txt"
-      - name: Check formatting only on changed files
+          } | tee "$RUNNER_TEMP/rf297-filters/source.txt"
+      - name: Check formatting only on changed source
         shell: bash
-        run: ./node_modules/.bin/prettier --check src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx | tee "$RUNNER_TEMP/rf297-selection/format.log"
+        run: ./node_modules/.bin/prettier --check src/utils/dateRange.js | tee "$RUNNER_TEMP/rf297-filters/format.log"
       - name: Preserve focused results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rf297-across-selection-2202
-          path: ${{ runner.temp }}/rf297-selection
+          name: rf297-date-filter-2202
+          path: ${{ runner.temp }}/rf297-filters
           if-no-files-found: warn
           retention-days: 7
