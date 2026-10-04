@@ -125,8 +125,48 @@ export function stableSortTransfers(transfers) {
   });
 }
 
+function compareSearchEntries(a, b) {
+  if (b.time !== a.time) return b.time - a.time;
+  if (a.id !== b.id) return a.id < b.id ? 1 : -1;
+  // Array.sort is stable: identical keys retain their original input order.
+  return a.index - b.index;
+}
+
+/** Keep only the best `limit` rows, with the worst retained row at the root. */
+function retainSearchEntry(heap, entry, limit) {
+  if (heap.length < limit) {
+    let child = heap.length;
+    heap.push(entry);
+    while (child > 0) {
+      const parent = Math.floor((child - 1) / 2);
+      if (compareSearchEntries(heap[parent], entry) >= 0) break;
+      heap[child] = heap[parent];
+      child = parent;
+    }
+    heap[child] = entry;
+    return;
+  }
+
+  if (compareSearchEntries(entry, heap[0]) >= 0) return;
+  let parent = 0;
+  while (parent * 2 + 1 < heap.length) {
+    let child = parent * 2 + 1;
+    if (
+      child + 1 < heap.length &&
+      compareSearchEntries(heap[child + 1], heap[child]) > 0
+    ) {
+      child += 1;
+    }
+    if (compareSearchEntries(entry, heap[child]) >= 0) break;
+    heap[parent] = heap[child];
+    parent = child;
+  }
+  heap[parent] = entry;
+}
+
 /**
- * Filter by actor + predicates, stable-sort, and cap.
+ * Filter by actor + predicates and select a stable, capped result.
+ * Only the retained rows are sorted; each matching timestamp is parsed once.
  *
  * @param {object[]} transfers
  * @param {{search?: string, status?: string, range?: string, actorId: string, limit?: number}} query
@@ -136,21 +176,35 @@ export function stableSortTransfers(transfers) {
 export function applyTransferSearch(transfers, query, options = {}) {
   const normalized = normalizeTransferQuery(query);
   const now = options.now ?? new Date();
-  const scoped = (transfers ?? []).filter((t) =>
-    isVisibleToActor(t, normalized.actorId, {
-      legacyActorId: options.legacyActorId,
-    }),
-  );
-  const matched = scoped.filter((t) =>
-    matchesTransferFilters(t, normalized, now),
-  );
-  const sorted = stableSortTransfers(matched);
-  const items = sorted.slice(0, normalized.limit);
+  const selected = [];
+  let totalMatched = 0;
+  const visibility = { legacyActorId: options.legacyActorId };
+  // forEach, like filter, skips sparse-array holes.
+  (transfers ?? []).forEach((transfer, index) => {
+    if (
+      !isVisibleToActor(transfer, normalized.actorId, visibility) ||
+      !matchesTransferFilters(transfer, normalized, now)
+    ) {
+      return;
+    }
+    totalMatched += 1;
+    retainSearchEntry(
+      selected,
+      {
+        transfer,
+        time: Date.parse(transfer?.createdAt ?? '') || 0,
+        id: String(transfer?.id ?? ''),
+        index,
+      },
+      normalized.limit,
+    );
+  });
+  const items = selected.sort(compareSearchEntries).map((entry) => entry.transfer);
 
   return {
     items,
-    totalMatched: matched.length,
-    capped: matched.length > normalized.limit,
+    totalMatched,
+    capped: totalMatched > normalized.limit,
     scopeKey: transferQueryScopeKey(normalized),
   };
 }
