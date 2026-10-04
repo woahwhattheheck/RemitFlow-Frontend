@@ -188,3 +188,59 @@ describe('createTransfer idempotency', () => {
     },
   );
 });
+
+
+describe('generated record identity', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-04T00:00:00.000Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each(['keyed', 'legacy'])('owns receipt metadata for %s creation', async (mode) => {
+    const payload = {
+      ...storagePayload('idem_owned_metadata'),
+      id: 'tx_1001',
+      status: 'completed',
+      createdAt: '2000-01-01T00:00:00.000Z',
+    };
+    if (mode === 'legacy') delete payload.idempotencyKey;
+    const pending = createTransfer(payload);
+    await vi.runAllTimersAsync();
+    const created = await pending;
+    const rows = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    console.log('TRANSFER_RECORD_OBSERVATION', JSON.stringify({
+      mode, id: created.id, status: created.status, createdAt: created.createdAt,
+      rowCount: rows.length, uniqueIds: new Set(rows.map((row) => row.id)).size,
+    }));
+    expect(created.id).not.toBe(payload.id);
+    expect(created.status).toBe('pending');
+    expect(created.createdAt).toBe('2026-10-04T00:00:00.700Z');
+    expect(created.recipient).toBe(payload.recipient);
+    expect(created.sendAmount).toBe('50');
+    expect(created.idempotencyKey).toBe(payload.idempotencyKey);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);
+    expect(rows.find((row) => row.id === 'tx_1001')).toMatchObject({
+      status: 'completed', sendAmount: 200,
+    });
+  });
+
+  it('reuses the generated receipt despite ignored metadata on retries', async () => {
+    const payload = storagePayload('idem_generated_replay');
+    const pending = createTransfer(payload);
+    const concurrent = createTransfer({ ...payload, id: 'tx_1001', status: 'completed' });
+    expect(concurrent).toBe(pending);
+    await vi.runAllTimersAsync();
+    const first = await pending;
+    const retry = createTransfer({
+      ...payload, id: 'tx_1001', status: 'completed',
+      createdAt: '2000-01-01T00:00:00.000Z',
+    });
+    await vi.runAllTimersAsync();
+    expect(await retry).toEqual(first);
+    const rows = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    expect(rows.filter((row) => row.idempotencyKey === payload.idempotencyKey)).toHaveLength(1);
+  });
+});

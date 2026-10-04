@@ -198,11 +198,13 @@ export function createTransfer(payload) {
 
         const transfer = parseTransfer(
           {
+            ...fields,
+            // Receipt identity and lifecycle metadata belong to creation,
+            // not to caller fields outside the transfer-intent fingerprint.
             id: `tx_${Date.now()}_${++transferSequence}`,
             status: 'pending',
             createdAt: new Date().toISOString(),
             ...(idempotencyKey ? { idempotencyKey } : {}),
-            ...fields,
           },
           { source: 'createTransfer' },
         );
