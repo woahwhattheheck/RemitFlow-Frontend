@@ -145,6 +145,12 @@ export default function Transfers() {
   // Persist a newly minted snapshot and surface recovery after an expired cursor.
   useEffect(() => {
     if (resolved.snapshot && resolved.snapshot.id !== snapshot?.id) {
+      if (snapshot) {
+        // Selection belongs to the previous frozen membership. Recovery must
+        // not select newcomers or keep counting rows that have disappeared.
+        setSelectedIds(new Set());
+        setSelectAllAcross(false);
+      }
       setSnapshot(resolved.snapshot);
     }
     if (resolved.recovered && cursor) {

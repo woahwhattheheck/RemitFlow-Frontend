@@ -1,7 +1,8 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
+import { SNAPSHOT_TTL_MS } from '../../src/utils/transferSnapshot.js';
 
 function seedTransfers(count) {
   const transfers = Array.from({ length: count }, (_, i) => ({
@@ -28,6 +29,10 @@ async function gotoTransfers() {
 describe('Transfers snapshot pagination', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('pages through a frozen snapshot without gaps', async () => {
@@ -124,9 +129,13 @@ describe('Transfers snapshot pagination', () => {
     });
     expect(within(newest).getByText('Completed')).toBeInTheDocument();
     expect(screen.queryByText('No matching transfers')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('group', { name: /transfer to /i })).toHaveLength(5);
+    expect(
+      screen.getAllByRole('group', { name: /transfer to /i }),
+    ).toHaveLength(5);
     expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
-    expect(screen.getByText('All 6 transfers are selected.')).toBeInTheDocument();
+    expect(
+      screen.getByText('All 6 transfers are selected.'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /next/i }));
@@ -134,7 +143,9 @@ describe('Transfers snapshot pagination', () => {
       name: /transfer to person1@e/i,
     });
     expect(within(oldest).getByText('Completed')).toBeInTheDocument();
-    expect(screen.getAllByRole('group', { name: /transfer to /i })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('group', { name: /transfer to /i }),
+    ).toHaveLength(1);
     expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
     expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
 
@@ -148,7 +159,9 @@ describe('Transfers snapshot pagination', () => {
       screen.getByLabelText(/filter by status/i),
       'pending',
     );
-    expect(await screen.findByText('No matching transfers')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No matching transfers'),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('group', { name: /transfer to /i }),
     ).not.toBeInTheDocument();
@@ -180,10 +193,78 @@ describe('Transfers snapshot pagination', () => {
 
     await screen.findByRole('group', { name: /transfer to person11@e/i });
     expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
-    expect(screen.getByText('All 6 transfers are selected.')).toBeInTheDocument();
+    expect(
+      screen.getByText('All 6 transfers are selected.'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
     expect(
       screen.queryByRole('group', { name: /transfer to new@example.com/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('clears select-all when an expired snapshot includes a new transfer', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const user = userEvent.setup();
+    const transfers = seedTransfers(12);
+    await gotoTransfers();
+    await user.click(
+      screen.getByLabelText(/select all transfers on this page/i),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Select all 12 transfers' }),
+    );
+    expect(screen.getByText('12 transfers selected')).toBeInTheDocument();
+
+    transfers.push({
+      ...transfers[11],
+      id: 'tx_new_after_expiry',
+      recipient: 'new@example.com',
+      createdAt: '2026-06-13T10:00:00Z',
+    });
+    localStorage.setItem('remitflow.transfers', JSON.stringify(transfers));
+    now += SNAPSHOT_TTL_MS + 1;
+    await user.click(screen.getByRole('button', { name: /refresh list/i }));
+
+    const newcomer = await screen.findByRole('group', {
+      name: /transfer to new@example.com/i,
+    });
+    expect(within(newcomer).getByRole('checkbox')).not.toBeChecked();
+    expect(
+      screen.queryByText(/\d+ transfers? selected/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/select all transfers on this page/i),
+    ).not.toBeChecked();
+    expect(screen.getByText(/page 1 of 3/i)).toBeInTheDocument();
+  });
+
+  it('clears individual selections when snapshot recovery removes their rows', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const user = userEvent.setup();
+    const transfers = seedTransfers(12);
+    await gotoTransfers();
+    const selectedRow = screen.getByRole('group', {
+      name: /transfer to person11@e/i,
+    });
+    await user.click(within(selectedRow).getByRole('checkbox'));
+    expect(screen.getByText('1 transfer selected')).toBeInTheDocument();
+
+    localStorage.setItem(
+      'remitflow.transfers',
+      JSON.stringify(transfers.slice(0, 11)),
+    );
+    now += SNAPSHOT_TTL_MS + 1;
+    await user.click(screen.getByRole('button', { name: /refresh list/i }));
+
+    await screen.findByRole('group', { name: /transfer to person10@e/i });
+    expect(
+      screen.queryByRole('group', { name: /transfer to person11@e/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('1 transfer selected')).not.toBeInTheDocument();
+    for (const row of screen.getAllByRole('group', { name: /transfer to /i })) {
+      expect(within(row).getByRole('checkbox')).not.toBeChecked();
+    }
   });
 });
