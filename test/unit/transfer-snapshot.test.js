@@ -346,8 +346,10 @@ describe('transferSnapshot', () => {
         ? recovered.snapshot
         : first.snapshot;
     expect(
-      resolveTransferPage(changed, { snapshot: retained, now: NOW })
-        .page.items.map((row) => row.id),
+      resolveTransferPage(changed, {
+        snapshot: retained,
+        now: NOW,
+      }).page.items.map((row) => row.id),
     ).toEqual(['tx_b']);
   });
 });
