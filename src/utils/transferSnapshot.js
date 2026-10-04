@@ -67,6 +67,11 @@ export function createTransferSnapshot(transfers, options = {}) {
   };
 }
 
+// A snapshot is one in-memory generation, not just a time/filter/count tuple.
+// Rapid replacements can share all three, so keep their cursors distinct even
+// when the clock is fixed or moves backward. Explicit caller IDs stay unchanged.
+let snapshotGeneration = 0;
+
 function mintSnapshotId(nowMs, scope, count) {
   const seed = `${nowMs}:${scope}:${count}`;
   let hash = 0x811c9dc5;
@@ -74,7 +79,8 @@ function mintSnapshotId(nowMs, scope, count) {
     hash ^= seed.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return `snap_${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  snapshotGeneration += 1;
+  return `snap_${(hash >>> 0).toString(16).padStart(8, '0')}_${snapshotGeneration.toString(36)}`;
 }
 
 /**

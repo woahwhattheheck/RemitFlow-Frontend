@@ -293,4 +293,61 @@ describe('transferSnapshot', () => {
     expect(refreshed.page.items[1].status).toBe('completed');
     expect(refreshed.page.totalCount).toBe(2);
   });
+
+  it('rejects a cursor from a same-time, equal-sized replacement snapshot', () => {
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      tx(
+        `tx_${String(i).padStart(2, '0')}`,
+        `2026-09-01T10:${String(i).padStart(2, '0')}:00Z`,
+      ),
+    );
+    const first = createTransferSnapshot(rows, { now: NOW, pageSize: 5 });
+    const firstPage = pageFromSnapshot(first, rows, { now: NOW });
+    const changed = [
+      tx('tx_new', '2026-09-02T10:00:00Z'),
+      ...rows.slice(0, 11),
+    ];
+    const replacement = createTransferSnapshot(changed, {
+      now: NOW,
+      pageSize: 5,
+    });
+
+    // The old page boundary is still present, so it cannot stand in for
+    // generation identity when a different row changed before that boundary.
+    expect(first.items[4]).toEqual(replacement.items[4]);
+    expect(replacement.id).not.toBe(first.id);
+    expect(
+      pageFromSnapshot(replacement, changed, {
+        now: NOW,
+        cursor: firstPage.nextCursor,
+      }).code,
+    ).toBe('cursor_expired');
+
+    // Even unchanged membership belongs to a new generation when recreated.
+    expect(createTransferSnapshot(rows, { now: NOW }).id).not.toBe(first.id);
+  });
+
+  it('gives same-tick cursor recovery an identity the page can retain', () => {
+    const rows = [tx('tx_a', '2026-09-01T10:00:00Z')];
+    const first = resolveTransferPage(rows, { now: NOW });
+    const changed = [tx('tx_b', '2026-09-02T10:00:00Z')];
+    const recovered = resolveTransferPage(changed, {
+      snapshot: first.snapshot,
+      cursor: 'invalid',
+      now: NOW,
+    });
+    expect(recovered.recovered).toBe(true);
+    expect(recovered.snapshot.id).not.toBe(first.snapshot.id);
+
+    // Transfers persists replacements by comparing their IDs. The next
+    // cursor-free render must not return the superseded row.
+    const retained =
+      recovered.snapshot.id !== first.snapshot.id
+        ? recovered.snapshot
+        : first.snapshot;
+    expect(
+      resolveTransferPage(changed, { snapshot: retained, now: NOW })
+        .page.items.map((row) => row.id),
+    ).toEqual(['tx_b']);
+  });
 });
