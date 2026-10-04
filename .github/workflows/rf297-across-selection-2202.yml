@@ -1,0 +1,79 @@
+name: RF297 focused across-page selection
+on:
+  push:
+    branches: [verify/rf297-across-selection-2202]
+    paths: [.github/workflows/rf297-across-selection-2202.yml]
+permissions:
+  contents: read
+concurrency:
+  group: rf297-across-selection-2202
+  cancel-in-progress: false
+jobs:
+  selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE: d0e0940be428c1743c87f7f42e2eec48b60cca2d
+      BASELINE: 3bb8747d62c1e9690f9a1559c7f6d73f792bd9d1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d0e0940be428c1743c87f7f42e2eec48b60cca2d
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install unchanged locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Reproduce both UI failures on original component
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/rf297-selection"
+          git show "$BASELINE:src/pages/Transfers.jsx" > src/pages/Transfers.jsx
+          set +e
+          ./node_modules/.bin/vitest run test/integration/select-all-across-pages.test.jsx --reporter=json --outputFile="$RUNNER_TEMP/rf297-selection/baseline.json" > "$RUNNER_TEMP/rf297-selection/baseline.log" 2>&1
+          status=$?
+          set -e
+          git restore --source="$SOURCE" -- src/pages/Transfers.jsx
+          cat "$RUNNER_TEMP/rf297-selection/baseline.log"
+          test "$status" -ne 0
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-selection/baseline.json`, 'utf8'));
+          const results = data.testResults.flatMap((suite) => suite.assertionResults);
+          assert.equal(results.length, 5);
+          assert.equal(results.filter((result) => result.status === 'passed').length, 3);
+          const failed = results.filter((result) => result.status === 'failed');
+          assert.equal(failed.length, 2);
+          assert.ok(failed.every((result) => /deselecting a (row|page) after selecting all/.test(result.fullName)));
+          console.log('Baseline: exactly the two new UI regressions fail; all three existing cases pass.');
+          JS
+      - name: Run repaired maintained selection file
+        shell: bash
+        run: |
+          ./node_modules/.bin/vitest run test/integration/select-all-across-pages.test.jsx --reporter=json --outputFile="$RUNNER_TEMP/rf297-selection/repaired.json" > "$RUNNER_TEMP/rf297-selection/repaired.log" 2>&1
+          cat "$RUNNER_TEMP/rf297-selection/repaired.log"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-selection/repaired.json`, 'utf8'));
+          const results = data.testResults.flatMap((suite) => suite.assertionResults);
+          assert.equal(results.length, 5);
+          assert.ok(results.every((result) => result.status === 'passed'));
+          console.log('Repaired: all five maintained selection cases pass, none skipped.');
+          JS
+          git diff --exit-code
+          git hash-object src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx
+          node --version
+      - name: Check formatting only on changed files
+        run: ./node_modules/.bin/prettier --check src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx
+      - name: Preserve focused results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf297-across-selection-2202
+          path: ${{ runner.temp }}/rf297-selection
+          if-no-files-found: warn
+          retention-days: 7
