@@ -97,7 +97,9 @@ function prepareTransferFilters(filters, now) {
   const status = filters.status
     ? (normalizeStatus(filters.status) ?? filters.status)
     : '';
-  const search = String(filters.search ?? '').trim().toLowerCase();
+  const search = String(filters.search ?? '')
+    .trim()
+    .toLowerCase();
   const days = getDateRangeDays(filters.range ?? '');
   // Keep Date's clipping/invalid-window semantics, including oversized presets.
   const cutoff = days
@@ -110,7 +112,9 @@ function prepareTransferFilters(filters, now) {
     if (status && normalizeStatus(transfer.status) !== status) return false;
     if (
       search &&
-      !String(transfer.recipient ?? '').toLowerCase().includes(search)
+      !String(transfer.recipient ?? '')
+        .toLowerCase()
+        .includes(search)
     ) {
       return false;
     }
@@ -210,7 +214,9 @@ export function applyTransferSearch(transfers, query, options = {}) {
       normalized.limit,
     );
   });
-  const items = selected.sort(compareSearchEntries).map((entry) => entry.transfer);
+  const items = selected
+    .sort(compareSearchEntries)
+    .map((entry) => entry.transfer);
 
   return {
     items,
