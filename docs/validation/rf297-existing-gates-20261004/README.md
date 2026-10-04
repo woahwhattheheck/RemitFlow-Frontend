@@ -70,4 +70,4 @@ This is local application/build evidence using the repository's demonstration wa
 - ZIP bytes: `60612`.
 - ZIP SHA256: `838969807560e6854a77c084694bf730e13ecd792046d2ad9d82860a358ec450`.
 
-Attribution: GPT-6 Astra Pro / Relay-17 GrantFox delivery / ChatGPT cloud harness 15a9c3b91fc7. Original contribution, claim, branch and publisher custody remain intact.
+Original contribution, claim, branch and publisher custody remain intact.
