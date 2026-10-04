@@ -97,4 +97,93 @@ describe('Transfers snapshot pagination', () => {
     expect(within(refreshedRow).queryByText('Pending')).not.toBeInTheDocument();
     expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
   });
+
+  it('retains all settled snapshot rows and selection totals until filters reset', async () => {
+    const user = userEvent.setup();
+    const transfers = seedTransfers(12);
+    await gotoTransfers();
+    await user.selectOptions(
+      screen.getByLabelText(/filter by status/i),
+      'pending',
+    );
+    await user.click(
+      screen.getByLabelText(/select all transfers on this page/i),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Select all 6 transfers' }),
+    );
+
+    transfers.forEach((transfer) => {
+      if (transfer.status === 'pending') transfer.status = 'completed';
+    });
+    localStorage.setItem('remitflow.transfers', JSON.stringify(transfers));
+    await user.click(screen.getByRole('button', { name: /refresh list/i }));
+
+    const newest = await screen.findByRole('group', {
+      name: /transfer to person11@e/i,
+    });
+    expect(within(newest).getByText('Completed')).toBeInTheDocument();
+    expect(screen.queryByText('No matching transfers')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('group', { name: /transfer to /i })).toHaveLength(5);
+    expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
+    expect(screen.getByText('All 6 transfers are selected.')).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    const oldest = await screen.findByRole('group', {
+      name: /transfer to person1@e/i,
+    });
+    expect(within(oldest).getByText('Completed')).toBeInTheDocument();
+    expect(screen.getAllByRole('group', { name: /transfer to /i })).toHaveLength(1);
+    expect(screen.getByText(/page 2 of 2/i)).toBeInTheDocument();
+    expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
+
+    // An explicit filter reset creates a new, genuinely empty pending snapshot.
+    await user.selectOptions(
+      screen.getByLabelText(/filter by status/i),
+      'completed',
+    );
+    await screen.findByRole('group', { name: /transfer to person11@e/i });
+    await user.selectOptions(
+      screen.getByLabelText(/filter by status/i),
+      'pending',
+    );
+    expect(await screen.findByText('No matching transfers')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: /transfer to /i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps selection totals scoped to the snapshot after a concurrent insert', async () => {
+    const user = userEvent.setup();
+    const transfers = seedTransfers(12);
+    await gotoTransfers();
+    await user.selectOptions(
+      screen.getByLabelText(/filter by status/i),
+      'pending',
+    );
+    await user.click(
+      screen.getByLabelText(/select all transfers on this page/i),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Select all 6 transfers' }),
+    );
+
+    transfers.push({
+      ...transfers[11],
+      id: 'tx_concurrent',
+      recipient: 'new@example.com',
+      createdAt: '2026-06-13T10:00:00Z',
+    });
+    localStorage.setItem('remitflow.transfers', JSON.stringify(transfers));
+    await user.click(screen.getByRole('button', { name: /refresh list/i }));
+
+    await screen.findByRole('group', { name: /transfer to person11@e/i });
+    expect(screen.getByText('6 transfers selected')).toBeInTheDocument();
+    expect(screen.getByText('All 6 transfers are selected.')).toBeInTheDocument();
+    expect(screen.getByText(/page 1 of 2/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: /transfer to new@example.com/i }),
+    ).not.toBeInTheDocument();
+  });
 });

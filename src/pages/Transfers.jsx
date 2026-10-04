@@ -138,6 +138,8 @@ export default function Transfers() {
 
   const pageTransfers = resolved.page.items;
   const totalPages = resolved.page.totalPages;
+  // Empty and selection states follow the same frozen membership as the rows.
+  const totalCount = resolved.page.totalCount;
   const page = resolved.page.page;
 
   // Persist a newly minted snapshot and surface recovery after an expired cursor.
@@ -180,9 +182,7 @@ export default function Transfers() {
   const somePageSelected = pageTransfers.some((t) =>
     selectAllAcross ? true : selectedIds.has(t.id),
   );
-  const selectedCount = selectAllAcross
-    ? filteredTransfers.length
-    : selectedIds.size;
+  const selectedCount = selectAllAcross ? totalCount : selectedIds.size;
   const hasMorePages = totalPages > 1;
 
   const handleSearchChange = useCallback(
@@ -274,7 +274,7 @@ export default function Transfers() {
       return <ErrorMessage message={error} onRetry={reload} />;
     }
 
-    if (filteredTransfers.length === 0) {
+    if (totalCount === 0) {
       return (
         <EmptyState
           icon={hasActiveFilters ? '🔍' : '💸'}
@@ -304,7 +304,7 @@ export default function Transfers() {
         <SelectionToolbar
           pageCount={pageTransfers.length}
           selectedCount={selectedCount}
-          totalCount={filteredTransfers.length}
+          totalCount={totalCount}
           allPageSelected={allPageSelected}
           somePageSelected={somePageSelected}
           allAcrossSelected={selectAllAcross}
