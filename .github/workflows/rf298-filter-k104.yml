@@ -1,0 +1,94 @@
+name: Focused transfer filter validation
+on:
+  push:
+    branches: [validation/rf298-filter-k104]
+    paths: [.github/workflows/rf298-filter-k104.yml]
+permissions:
+  contents: write
+concurrency:
+  group: rf298-filter-k104
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b3af1368de7e2d043a79ae49fe912584375eadfa
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install the existing locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Format only the three contribution files
+        run: npx --no-install prettier --write src/utils/transferSearch.js test/unit/transfer-filter-preparation.test.js scripts/bench-transfer-filter-preparation.mjs
+      - name: Run the existing utility suite and the new regressions
+        run: npx --no-install vitest run test/unit/transfer-search.test.js test/unit/transfer-filter-preparation.test.js --reporter=json --outputFile="$RUNNER_TEMP/unit-results.json"
+      - name: Compare the complete production modules
+        run: |
+          mkdir -p docs/performance/transfer-filter-preparation-20261004
+          git show ecefe06d68ca6838434b755525cfc3cc6c701d4f:src/utils/transferSearch.js > src/utils/transferSearch.baseline.js
+          node --expose-gc scripts/bench-transfer-filter-preparation.mjs src/utils/transferSearch.baseline.js > docs/performance/transfer-filter-preparation-20261004/results.json
+          rm src/utils/transferSearch.baseline.js
+          node -p 'JSON.stringify({node:process.version,vitest:require("vitest/package.json").version,prettier:require("prettier/package.json").version})' > "$RUNNER_TEMP/tool-versions.json"
+      - name: Retain source-bound results on a separate result ref
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path('docs/performance/transfer-filter-preparation-20261004')
+          result = json.loads((root/'results.json').read_text())
+          tests = json.loads((Path(os.environ['RUNNER_TEMP'])/'unit-results.json').read_text())
+          versions = json.loads((Path(os.environ['RUNNER_TEMP'])/'tool-versions.json').read_text())
+          assert tests['numTotalTests'] == 13 and tests['numPassedTests'] == 13
+          assert tests['numFailedTests'] == 0 and tests['numPendingTests'] == 0
+          assert result['compatibility_checks'] == 10368
+          assert result['source']['baseline_blob'] == 'a75e2e4fe88e16cb0b03ed97aa0a1c18dbba1274'
+          lines = ['# Query-invariant transfer filter preparation', '',
+                   'Continuation of RemitFlow Frontend #281 on the existing PR #298. The earlier bounded-heap selector is retained; this comparison starts from that already-optimized implementation, not the old full sort.', '',
+                   'The status alias, folded search term and date-window cutoff are prepared once per invocation. Rows are still read and matched on every query; no result cache or stale-window reuse is introduced. Empty filters bypass the matcher. Actor visibility, returned row identity, stable top-k membership, totals and scope keys are retained.', '',
+                   '## Focused native execution', '',
+                   f"Node {versions['node']}; Vitest {versions['vitest']}; Prettier {versions['prettier']}; {result['platform']}; {result['cpu']}.",
+                   'The existing 11 utility cases and two new maintained regressions passed together: **13 passed, zero failures or skipped tests**. The new cases cover one clock read per query, inclusive date boundaries, fresh time on subsequent calls, unbounded presets and invalid/oversized windows.',
+                   'The original repository Vite configuration, jsdom setup and locked dependencies were used. Only these two utility test files ran; no full application suite, build, browser or provider execution is claimed.', '',
+                   f"[Execution run](https://github.com/woahwhattheheck/RemitFlow-Frontend/actions/runs/{os.environ['GITHUB_RUN_ID']}). Candidate before formatting: b3af1368de7e2d043a79ae49fe912584375eadfa. Tests and timings below executed the formatted files committed with this report.", '',
+                   '## Complete-selector timings', '',
+                   'Synthetic histories; three warmups followed by nine paired samples with alternating order. Fixture creation, assertions, garbage collection and operation counting are outside the timed selector call. All paired outputs and row references matched; a further 10,368 untimed compatibility comparisons passed.', '',
+                   '| Workload | Baseline ms | Prepared ms | Time reduction |',
+                   '| --- | ---: | ---: | ---: |']
+          for row in result['observations']:
+              lines.append(f"| {row['name']} | {row['baseline_median_ms']:.3f} | {row['candidate_median_ms']:.3f} | {row['reduction_percent']:.2f}% |")
+          lines += ['', 'All raw paired samples, output digests, source Git blobs and separately measured operation counts are in [results.json](results.json). Negative reductions, if present, are regressions, not speedups. These measurements exclude localStorage decoding, schema validation, the simulated API delay, React rendering and network/provider work; they are not whole-page or fleet-throughput results.', '',
+                    'An earlier local prototype without the empty-filter bypass regressed the 5,000-row all-time case by 15.93% in one paired measurement. That prototype was rejected. The revised local pass measured 1.536 versus 1.542 ms for that small workload (effectively unchanged), 69.875 versus 40.020 ms for the 100,000-row date window and 32.628 versus 22.354 ms for combined filters. Those exploratory Node 22.16.0 observations are separate from the source-bound execution above.', '',
+                    '## Reproduce', '', '```bash',
+                    'git show ecefe06d68ca6838434b755525cfc3cc6c701d4f:src/utils/transferSearch.js > src/utils/transferSearch.baseline.js',
+                    'node --expose-gc scripts/bench-transfer-filter-preparation.mjs src/utils/transferSearch.baseline.js',
+                    'npx vitest run test/unit/transfer-search.test.js test/unit/transfer-filter-preparation.test.js',
+                    'rm src/utils/transferSearch.baseline.js', '```', '',
+                    'No existing test, package manifest, lockfile, UI or API path was changed. The temporary execution workflow is not part of the product result. Original contribution and claim custody remain unchanged; this report establishes neither maintainer acceptance nor an award/payment.', '']
+          (root/'README.md').write_text('\n'.join(lines))
+          PY
+          git diff --exit-code -- package.json package-lock.json vite.config.js test/setup.js
+          git config user.name woahwhattheheck
+          git config user.email 293286387+woahwhattheheck@users.noreply.github.com
+          git add src/utils/transferSearch.js test/unit/transfer-filter-preparation.test.js scripts/bench-transfer-filter-preparation.mjs docs/performance/transfer-filter-preparation-20261004
+          git commit -m 'perf(search): record focused filter-preparation results'
+          git rev-parse HEAD > "$RUNNER_TEMP/result-commit.txt"
+          AUTH=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push https://github.com/woahwhattheheck/RemitFlow-Frontend.git HEAD:refs/heads/result/rf298-filter-k104
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rf298-filter-k104-results
+          retention-days: 7
+          path: |
+            docs/performance/transfer-filter-preparation-20261004
+            ${{ runner.temp }}/unit-results.json
+            ${{ runner.temp }}/tool-versions.json
+            ${{ runner.temp }}/result-commit.txt
