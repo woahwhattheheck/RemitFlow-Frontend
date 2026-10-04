@@ -43,11 +43,12 @@ jobs:
           import fs from 'node:fs';
           const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-selection/baseline.json`, 'utf8'));
           const results = data.testResults.flatMap((suite) => suite.assertionResults);
+          console.log(results.map(({ fullName, status }) => ({ fullName, status })));
           assert.equal(results.length, 5);
           assert.equal(results.filter((result) => result.status === 'passed').length, 3);
           const failed = results.filter((result) => result.status === 'failed');
           assert.equal(failed.length, 2);
-          assert.ok(failed.every((result) => /deselecting a (row|page) after selecting all/.test(result.fullName)));
+          assert.ok(failed.every((result) => /deselecting a '(row|page)' after selecting all/.test(result.fullName)));
           console.log('Baseline: exactly the two new UI regressions fail; all three existing cases pass.');
           JS
       - name: Run repaired maintained selection file
@@ -60,6 +61,7 @@ jobs:
           import fs from 'node:fs';
           const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-selection/repaired.json`, 'utf8'));
           const results = data.testResults.flatMap((suite) => suite.assertionResults);
+          console.log(results.map(({ fullName, status }) => ({ fullName, status })));
           assert.equal(results.length, 5);
           assert.ok(results.every((result) => result.status === 'passed'));
           console.log('Repaired: all five maintained selection cases pass, none skipped.');
@@ -68,7 +70,17 @@ jobs:
           git hash-object src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx
           node --version
       - name: Check formatting only on changed files
-        run: ./node_modules/.bin/prettier --check src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx
+        shell: bash
+        run: |
+          set +e
+          ./node_modules/.bin/prettier --check src/pages/Transfers.jsx test/integration/select-all-across-pages.test.jsx
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            ./node_modules/.bin/prettier src/pages/Transfers.jsx > "$RUNNER_TEMP/rf297-selection/Transfers.formatted.jsx"
+            ./node_modules/.bin/prettier test/integration/select-all-across-pages.test.jsx > "$RUNNER_TEMP/rf297-selection/selection.formatted.jsx"
+          fi
+          exit "$status"
       - name: Preserve focused results
         if: always()
         uses: actions/upload-artifact@v4
