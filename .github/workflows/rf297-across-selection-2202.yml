@@ -1,4 +1,4 @@
-name: RF297 focused date-filter continuation
+name: RF297 benchmark documentation format
 on:
   push:
     branches: [verify/rf297-across-selection-2202]
@@ -9,53 +9,31 @@ concurrency:
   group: rf297-across-selection-2202
   cancel-in-progress: false
 jobs:
-  filters:
+  format:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      SOURCE: 9f1debe8fb5ba5f79fc6fe83349d4264faa7b13b
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 9f1debe8fb5ba5f79fc6fe83349d4264faa7b13b
+          ref: 1ee074a9deb2512b18437664dc74830f1e7f6bc0
           fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install unchanged locked dependencies
+      - name: Install unchanged locked formatter
         run: npm ci --no-audit --no-fund
-      - name: Run existing mounted filter cases
+      - name: Format only new benchmark documentation
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/rf297-filters"
-          ./node_modules/.bin/vitest run test/integration/transfers-filter.test.jsx --reporter=json --outputFile="$RUNNER_TEMP/rf297-filters/results.json" > "$RUNNER_TEMP/rf297-filters/tests.log" 2>&1
-          cat "$RUNNER_TEMP/rf297-filters/tests.log"
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict';
-          import fs from 'node:fs';
-          const data = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/rf297-filters/results.json`, 'utf8'));
-          const results = data.testResults.flatMap((suite) => suite.assertionResults);
-          console.log(results.map(({ fullName, status }) => ({ fullName, status })));
-          assert.equal(results.length, 8);
-          assert.ok(results.every((result) => result.status === 'passed'));
-          console.log('All eight unchanged filter cases pass, none skipped.');
-          JS
-          git diff --exit-code
-          {
-            git rev-parse HEAD
-            git hash-object src/utils/dateRange.js test/integration/transfers-filter.test.jsx
-            node --version
-            npm --version
-          } | tee "$RUNNER_TEMP/rf297-filters/source.txt"
-      - name: Check formatting only on changed source
-        shell: bash
-        run: ./node_modules/.bin/prettier --check src/utils/dateRange.js | tee "$RUNNER_TEMP/rf297-filters/format.log"
-      - name: Preserve focused results
-        if: always()
+          mkdir -p "$RUNNER_TEMP/rf297-benchmark-format"
+          ./node_modules/.bin/prettier --write docs/performance/date-range-clock.mjs docs/performance/date-range-clock.md
+          ./node_modules/.bin/prettier --check docs/performance/date-range-clock.mjs docs/performance/date-range-clock.md
+          cp docs/performance/date-range-clock.mjs docs/performance/date-range-clock.md "$RUNNER_TEMP/rf297-benchmark-format/"
+          git diff --stat
+      - name: Return formatter output
         uses: actions/upload-artifact@v4
         with:
-          name: rf297-date-filter-2202
-          path: ${{ runner.temp }}/rf297-filters
-          if-no-files-found: warn
+          name: rf297-benchmark-format-2202
+          path: ${{ runner.temp }}/rf297-benchmark-format
           retention-days: 7
