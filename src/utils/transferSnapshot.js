@@ -199,7 +199,6 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
   const filters = options.filters ?? {};
   const now = options.now ?? Date.now();
   const pageSize = snapshot?.pageSize ?? DEFAULT_PAGE_SIZE;
-  const byId = new Map((liveTransfers ?? []).map((t) => [t.id, t]));
 
   const decoded = options.cursor ? decodeCursor(options.cursor) : null;
   const scoped = isCursorInScope(decoded, snapshot, filters, now);
@@ -239,6 +238,14 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
   const start = (page - 1) * pageSize;
   const slice = snapshot.items.slice(start, start + pageSize);
+  // Only visible snapshot IDs need fresh fields. Scan the current list without
+  // allocating a full-history Map or a temporary pair for every transfer.
+  // Keep scanning after a match: the last duplicate ID wins, as in Map(rows).
+  const pageIds = new Set(slice.map((ref) => ref.id));
+  const byId = new Map();
+  for (const transfer of liveTransfers ?? []) {
+    if (pageIds.has(transfer.id)) byId.set(transfer.id, transfer);
+  }
   // Keep a complete snapshot even if a row disappears or changes its active
   // filter after the snapshot was taken. Fresh fields win while it remains live.
   const items = slice.map((ref) => byId.get(ref.id) ?? ref.record);
