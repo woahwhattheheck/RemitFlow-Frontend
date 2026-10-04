@@ -230,20 +230,32 @@ export default function Transfers() {
   const hasActiveFilters = Boolean(search || status || range);
 
   // Selection handlers
-  const handleToggleSelect = useCallback((id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    setSelectAllAcross(false);
-  }, []);
+  const handleToggleSelect = useCallback(
+    (id) => {
+      setSelectedIds((prev) => {
+        // Across-page selection is implicit until the first deselection.
+        const next = new Set(
+          selectAllAcross
+            ? resolved.snapshot.items.map((t) => t.id)
+            : prev,
+        );
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setSelectAllAcross(false);
+    },
+    [selectAllAcross, resolved.snapshot],
+  );
 
   const handleTogglePage = useCallback(() => {
     if (allPageSelected) {
       setSelectedIds((prev) => {
-        const next = new Set(prev);
+        const next = new Set(
+          selectAllAcross
+            ? resolved.snapshot.items.map((t) => t.id)
+            : prev,
+        );
         pageTransfers.forEach((t) => next.delete(t.id));
         return next;
       });
@@ -255,7 +267,7 @@ export default function Transfers() {
       });
     }
     setSelectAllAcross(false);
-  }, [allPageSelected, pageTransfers]);
+  }, [allPageSelected, pageTransfers, selectAllAcross, resolved.snapshot]);
 
   const handleSelectAllAcross = useCallback(() => {
     setSelectAllAcross(true);
