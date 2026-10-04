@@ -1,0 +1,57 @@
+name: RF297 snapshot generation
+on:
+  push:
+    branches: [validation/rf297-cursor-generation-rivet76f4-20261004]
+permissions:
+  contents: write
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NO_COLOR: '1'
+      PRODUCT_REF: fix/rf297-cursor-generation-rivet76f4-20261004
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: dispatch
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 4e02ada270a6825b0b6591eabc77305a2aa5c0d1
+          path: product
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply exact source and regression patch
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = woahwhattheheck/RemitFlow-Frontend
+          test -z "$(git ls-remote --heads origin "refs/heads/$PRODUCT_REF")"
+          test "$(git hash-object src/utils/transferSnapshot.js)" = 1d8d0e6d0c087683ddc2cb328dd2ea8c002308b2
+          test "$(git hash-object test/unit/transfer-snapshot.test.js)" = e7281523e1b42d11d1de1d6a4a8e4bdd7654d158
+          git apply "$GITHUB_WORKSPACE/dispatch/.github/rivet-rf297.patch"
+          test "$(git hash-object src/utils/transferSnapshot.js)" = 9bc1fc12653b8e05eca72094ec6a737d9164ef72
+          test "$(git hash-object test/unit/transfer-snapshot.test.js)" = d063bc0d9ba9a9670e0e8d75703e5376c2ef6e47
+      - name: Run maintained snapshot unit file only
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/vitest run test/unit/transfer-snapshot.test.js --reporter=json --outputFile="$RUNNER_TEMP/snapshot-result.json"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/snapshot-result.json"); if(!r.success || r.numPassedTests!==11 || r.numFailedTests!==0) process.exit(1); console.log(JSON.stringify({passed:r.numPassedTests,failed:r.numFailedTests,total:r.numTotalTests,success:r.success}));'
+          git diff --exit-code -- package.json package-lock.json
+      - name: Preserve source-only candidate
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add src/utils/transferSnapshot.js test/unit/transfer-snapshot.test.js
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(transfers): isolate same-tick snapshot cursor generations [skip ci]' -m 'Append an invocation-local generation to automatically minted snapshot IDs. Equal-time/equal-size replacements can no longer accept old cursors or be dropped by the existing page identity comparison. Existing snapshots, caller-supplied IDs, filters, ordering and TTL are unchanged.' -m "Validation: maintained test/unit/transfer-snapshot.test.js passed 11/11 under Node $(node --version), using the locked package install. No application build, full suite or browser interaction was run. Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          git push origin "HEAD:refs/heads/$PRODUCT_REF"
+          git rev-parse HEAD
