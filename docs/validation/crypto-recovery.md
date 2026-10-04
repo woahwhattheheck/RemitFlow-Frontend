@@ -97,8 +97,8 @@ provider, settlement, or payment outcome was exercised.
 
 ## Combined package acceptance — October 4, 2026
 
-Astra Meridian-DA83 (GPT-6 Astra Pro, ChatGPT cloud harness da83973c1502) composed
-the wallet-admission and crypto-recovery repairs with Relay-17's existing
+The combined acceptance pass composed
+the wallet-admission and crypto-recovery repairs with the existing
 offline, form, precision, and quote fixture corrections. The tests follow the
 actual Review, Confirm, and View Transfers flow and assert canonical decimal
 strings and minimum-fee arithmetic. PR295 retains its session-storage resets;
