@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
@@ -43,6 +43,8 @@ describe('Offline and reconnect state for transfer mutations', () => {
     });
     window.history.pushState({}, '', '/send');
     localStorage.clear();
+    // These cases exercise connectivity, not the demo wallet's random refusal.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -124,7 +126,23 @@ describe('Offline and reconnect state for transfer mutations', () => {
     }, { timeout: 5000 });
     expect(submitButton).toBeEnabled();
 
+    expect(createTransfer).not.toHaveBeenCalled();
     await user.click(submitButton);
+    const confirmation = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    expect(createTransfer).not.toHaveBeenCalled();
+    await user.click(
+      within(confirmation).getByRole('button', { name: /confirm transfer/i }),
+    );
+    const result = await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
+    await user.click(
+      within(result).getByRole('button', { name: /view transfers/i }),
+    );
 
     await screen.findByRole('heading', { name: /your transfers/i }, { timeout: 10000 });
     expect(createTransfer).toHaveBeenCalledTimes(1);
@@ -170,9 +188,15 @@ describe('Offline and reconnect state for transfer mutations', () => {
 
     await fillValidForm(user);
 
-    // Start the submission.
-    const submitButton = screen.getByRole('button', { name: /review & send/i });
-    fireEvent.click(submitButton);
+    // Review first, then dispatch through the actual confirmation dialog.
+    await user.click(screen.getByRole('button', { name: /review & send/i }));
+    const confirmation = await screen.findByRole('dialog', {
+      name: /confirm your transfer/i,
+    });
+    expect(createTransfer).not.toHaveBeenCalled();
+    await user.click(
+      within(confirmation).getByRole('button', { name: /confirm transfer/i }),
+    );
 
     // After the catch block runs, the error message should be about
     // connection loss, NOT a generic "could not submit" message.
@@ -185,5 +209,6 @@ describe('Offline and reconnect state for transfer mutations', () => {
     expect(
       screen.queryByText(/could not submit the transfer\./i),
     ).not.toBeInTheDocument();
+    expect(createTransfer).toHaveBeenCalledTimes(1);
   });
 });
