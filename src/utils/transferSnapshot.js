@@ -20,12 +20,20 @@ export const SNAPSHOT_TTL_MS = 5 * 60_000;
  * @returns {object[]}
  */
 export function stableSortTransfers(transfers) {
-  return (transfers ?? []).slice().sort((a, b) => {
-    const aTime = Date.parse(a?.createdAt ?? '') || 0;
-    const bTime = Date.parse(b?.createdAt ?? '') || 0;
-    if (bTime !== aTime) return bTime - aTime;
-    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
-  });
+  // Parse once per row, not twice per comparison. Keep undefined entries and
+  // sparse slots unwrapped so native sort retains their existing placement.
+  return (transfers ?? [])
+    .map((record) =>
+      record === undefined
+        ? undefined
+        : {
+            record,
+            time: Date.parse(record?.createdAt ?? '') || 0,
+            id: String(record?.id ?? ''),
+          },
+    )
+    .sort((a, b) => b.time - a.time || b.id.localeCompare(a.id))
+    .map((entry) => entry?.record);
 }
 
 /**
