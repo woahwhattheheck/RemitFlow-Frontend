@@ -83,6 +83,20 @@ describe('transferSearch scope and filters', () => {
     ]);
   });
 
+  it('stabilizes capped membership for canonically equivalent IDs', () => {
+    const rows = [tx({ id: 'tx_\u00e9' }), tx({ id: 'tx_e\u0301' })];
+    const query = { actorId: ACTOR, limit: 1 };
+    const forward = applyTransferSearch(rows, query);
+    const reversed = applyTransferSearch([...rows].reverse(), query);
+
+    expect(reversed.items).toEqual(forward.items);
+    expect(forward.items.map((row) => row.id)).toEqual(['tx_\u00e9']);
+    expect(forward.totalMatched).toBe(2);
+    expect(reversed.totalMatched).toBe(2);
+    expect(forward.capped).toBe(true);
+    expect(reversed.capped).toBe(true);
+  });
+
   it('caps results and reports totalMatched for large histories', () => {
     const rows = Array.from({ length: 250 }, (_, i) =>
       tx({

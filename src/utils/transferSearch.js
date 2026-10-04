@@ -109,7 +109,7 @@ export function matchesTransferFilters(
 }
 
 /**
- * Newest-first ordering with id as the deterministic tie-breaker.
+ * Newest-first ordering with descending exact ID strings as the tie-breaker.
  * @param {object[]} transfers
  * @returns {object[]}
  */
@@ -118,7 +118,10 @@ export function stableSortTransfers(transfers) {
     const aTime = Date.parse(a?.createdAt ?? '') || 0;
     const bTime = Date.parse(b?.createdAt ?? '') || 0;
     if (bTime !== aTime) return bTime - aTime;
-    return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+    // Locale collation can equate distinct IDs; compare their exact strings.
+    const aId = String(a?.id ?? '');
+    const bId = String(b?.id ?? '');
+    return aId < bId ? 1 : aId > bId ? -1 : 0;
   });
 }
 
