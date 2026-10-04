@@ -22,6 +22,14 @@ export class TransferOperationStorageError extends Error {
   }
 }
 
+/** Old 32-bit fingerprints cannot safely bind a new request to a saved intent. */
+export class LegacyTransferOperationError extends Error {
+  constructor() {
+    super('A transfer from an older browser session needs reconciliation. Check Transfers before starting another transfer. This attempt was not submitted.');
+    this.name = 'LegacyTransferOperationError';
+  }
+}
+
 /**
  * Canonical fingerprint of the transferable payload fields.
  * @param {{recipient:string,from:string,to:string,sendAmount:number|string,receiveAmount:number|string,fee?:number|string,rate?:number|string}} payload
@@ -74,16 +82,10 @@ export async function idempotencyKeyFor(fingerprint, nonce) {
       .join('');
     return `idem_${hex.slice(0, 32)}`;
   }
-  return `idem_${fnv1a(input)}`;
-}
-
-function fnv1a(input) {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  // Use the SDK's existing SHA-256 implementation when SubtleCrypto is absent.
+  // Both paths hash UTF-8 bytes and retain the same 128-bit key representation.
+  const { hash } = await import('@stellar/stellar-sdk');
+  return `idem_${hash(input).toString('hex').slice(0, 32)}`;
 }
 
 function readOps({ strict = false } = {}) {
@@ -148,7 +150,16 @@ export function getLatestRecoverableOperation(fingerprint, options) {
     .filter((op) => op && recoverable.has(op.status) &&
       (fingerprint === undefined || op.fingerprint === fingerprint))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  return matches[0] ?? null;
+  const match = matches[0] ?? null;
+  const legacy = (op) => /^idem_[0-9a-f]{8}$/.test(op?.fingerprint ?? '');
+  if (options?.strict && (!match || legacy(match)) &&
+      ops.some((op) => op && recoverable.has(op.status) && legacy(op))) {
+    // Do not mint a replacement key or guess which payload an old collision
+    // represented. Default reads still permit reconciliation by the saved key.
+    // A separately saved strong match can still be retried without a new key.
+    throw new LegacyTransferOperationError();
+  }
+  return match;
 }
 
 export function clearTransferOperation(idempotencyKey) {

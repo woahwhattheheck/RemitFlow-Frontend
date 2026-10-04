@@ -28,6 +28,7 @@ import {
   saveTransferOperation,
   getLatestRecoverableOperation,
   TransferOperationStorageError,
+  LegacyTransferOperationError,
 } from '../utils/transferIntent.js';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.js';
 import { useApp } from '../context/AppContext.jsx';
@@ -292,7 +293,11 @@ export default function SendMoney() {
     } catch (err) {
       setPendingQuote(null);
       setPhase(null);
-      if (err instanceof TransferOperationStorageError) {
+      if (err instanceof LegacyTransferOperationError) {
+        // Preserve the old operation and its key until its outcome is known.
+        // Neither addTransfer nor a replacement journal write has occurred.
+        setSubmitError(err.message);
+      } else if (err instanceof TransferOperationStorageError) {
         // addTransfer was not called. Keep the in-memory intent for a safe
         // retry, and do not attempt another write to unavailable storage.
         setSubmitError(
