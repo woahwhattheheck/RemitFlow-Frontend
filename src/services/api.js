@@ -15,6 +15,7 @@ import { DEMO_PUBLIC_KEY } from './wallet.js';
 import {
   DEFAULT_RESULT_CAP,
   applyTransferSearch,
+  isVisibleToActor,
   normalizeTransferQuery,
   requireActorId,
 } from '../utils/transferSearch.js';
@@ -128,7 +129,16 @@ export function listTransfers(options = {}) {
 
     const timer = setTimeout(() => {
       try {
-        const { transfers, rejected, breaking } = parseTransferList(read(), {
+        const raw = read();
+        const visibility = { legacyActorId: DEMO_PUBLIC_KEY };
+        // Validate this actor's response, not every wallet in shared storage.
+        // Foreign records must neither cause nor mask our schema failures.
+        const visible = Array.isArray(raw)
+          ? raw.filter((transfer) =>
+              isVisibleToActor(transfer, query.actorId, visibility),
+            )
+          : raw;
+        const { transfers, rejected, breaking } = parseTransferList(visible, {
           source: 'listTransfers',
         });
         if (breaking) {
@@ -143,9 +153,7 @@ export function listTransfers(options = {}) {
         }
         if (rejected.length) reportRejected(rejected);
 
-        const { items } = applyTransferSearch(transfers, query, {
-          legacyActorId: DEMO_PUBLIC_KEY,
-        });
+        const { items } = applyTransferSearch(transfers, query, visibility);
         resolve(items);
       } catch (error) {
         reject(error);
