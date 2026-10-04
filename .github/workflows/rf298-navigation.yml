@@ -1,0 +1,57 @@
+name: RF298 mounted navigation acceptance
+on:
+  push:
+    branches: [validation/rf298-navigation-1ca9]
+permissions:
+  contents: read
+jobs:
+  navigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: carrier
+      - uses: actions/checkout@v4
+        with:
+          ref: 09cad8dff6d55a35b39d6836d31d045cdc1b938b
+          path: subject
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run original and repaired mounted page
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          cd subject
+          node --version | tee ../evidence/node.txt
+          npm --version | tee ../evidence/npm.txt
+          git rev-parse HEAD | tee ../evidence/source.txt
+          npm ci --no-audit --no-fund
+          cp ../carrier/transfers-search-navigation.test.jsx test/integration/
+          set +e
+          npx --no-install vitest run test/integration/transfers-search-navigation.test.jsx --maxWorkers=1 --reporter=verbose > ../evidence/before.log 2>&1
+          before=$?
+          set -e
+          echo "$before" > ../evidence/before.exit
+          python ../carrier/apply.py
+          npx --no-install prettier --write src/pages/Transfers.jsx test/integration/transfers-search-navigation.test.jsx
+          set +e
+          npx --no-install vitest run test/integration/transfers-search-navigation.test.jsx test/integration/transfers-filter.test.jsx --maxWorkers=1 --reporter=verbose > ../evidence/after.log 2>&1
+          after=$?
+          set -e
+          echo "$after" > ../evidence/after.exit
+          cp src/pages/Transfers.jsx ../evidence/Transfers.jsx
+          cp test/integration/transfers-search-navigation.test.jsx ../evidence/
+          git diff -- src/pages/Transfers.jsx > ../evidence/source.patch
+          git hash-object src/pages/Transfers.jsx test/integration/transfers-search-navigation.test.jsx > ../evidence/blobs.txt
+          cat ../evidence/before.log ../evidence/after.log
+          test "$before" -ne 0
+          test "$after" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rf298-navigation-1ca9
+          path: evidence/
+          retention-days: 7
