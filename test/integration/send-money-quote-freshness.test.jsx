@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
 import * as api from '../../src/services/api.js';
+import * as walletService from '../../src/services/wallet.js';
 import { QUOTE_TTL_MS } from '../../src/services/contracts/quote.js';
 
 async function fillValidForm(user) {
@@ -340,6 +341,103 @@ describe('Send money quote freshness', () => {
       );
       expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([
         expect.objectContaining({ quoteId, sendAmount: canonical }),
+      ]);
+    },
+  );
+
+  it.each([
+    { label: 'the network drops', reconnectBeforeWallet: false },
+    { label: 'the network drops and recovers', reconnectBeforeWallet: true },
+  ])(
+    'does not resume confirmation when $label during wallet connection',
+    async ({ reconnectBeforeWallet }) => {
+      localStorage.setItem('remitflow.transfers', JSON.stringify([]));
+      const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+      let resolveConnection;
+      const connection = new Promise((resolve) => {
+        resolveConnection = resolve;
+      });
+      vi.spyOn(walletService, 'connectWallet').mockReturnValue(connection);
+      const createSpy = vi.spyOn(api, 'createTransfer');
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<App />);
+
+      await fillValidForm(user);
+      await user.click(screen.getByRole('button', { name: /review & send/i }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /confirm your transfer/i,
+      });
+      const originalQuoteId = within(dialog)
+        .getByText(/transfer summary/i)
+        .closest('.quote-card')
+        .getAttribute('data-quote-id');
+      await user.click(
+        within(dialog).getByRole('button', { name: /confirm transfer/i }),
+      );
+
+      act(() => {
+        online.mockReturnValue(false);
+        window.dispatchEvent(new Event('offline'));
+      });
+      expect(
+        screen.queryByRole('dialog', { name: /confirm your transfer/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/the pending quote was cleared/i),
+      ).toBeInTheDocument();
+
+      if (reconnectBeforeWallet) {
+        act(() => {
+          online.mockReturnValue(true);
+          window.dispatchEvent(new Event('online'));
+        });
+      }
+
+      await act(async () => {
+        resolveConnection({
+          publicKey: 'GBQAZ7Z3X7DEMOPUBLICKEY4REMITFLOWWALLET123456789ABCDEF',
+          balance: 1000,
+        });
+        await connection;
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(700);
+      });
+
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([]);
+      expect(
+        screen.queryByRole('dialog', { name: /transfer submitted/i }),
+      ).not.toBeInTheDocument();
+
+      if (!reconnectBeforeWallet) {
+        act(() => {
+          online.mockReturnValue(true);
+          window.dispatchEvent(new Event('online'));
+        });
+      }
+      const reviewButton = screen.getByRole('button', { name: /review & send/i });
+      expect(reviewButton).toBeEnabled();
+      await user.click(reviewButton);
+      const retryDialog = await screen.findByRole('dialog', {
+        name: /confirm your transfer/i,
+      });
+      const retryQuoteId = within(retryDialog)
+        .getByText(/transfer summary/i)
+        .closest('.quote-card')
+        .getAttribute('data-quote-id');
+      expect(retryQuoteId).not.toBe(originalQuoteId);
+      await user.click(
+        within(retryDialog).getByRole('button', { name: /confirm transfer/i }),
+      );
+      await screen.findByRole(
+        'dialog',
+        { name: /transfer submitted/i },
+        { timeout: 5000 },
+      );
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([
+        expect.objectContaining({ quoteId: retryQuoteId, sendAmount: '15' }),
       ]);
     },
   );

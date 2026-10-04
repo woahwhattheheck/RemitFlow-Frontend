@@ -56,6 +56,7 @@ export default function SendMoney() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const submissionLock = useRef(false);
+  const confirmationVersion = useRef(0);
   const wasOffline = useRef(false);
 
   // True when the form just recovered from a disconnected state. Used to
@@ -105,6 +106,7 @@ export default function SendMoney() {
         )
       : { ok: false, reason: parsedAmount.error };
     if (!live.ok && live.code !== 'expired') {
+      confirmationVersion.current += 1;
       setPendingQuote(null);
       setPhase(null);
       setSubmitError(live.reason);
@@ -180,6 +182,7 @@ export default function SendMoney() {
     const dropped = !wasOffline.current && !isOnline;
     wasOffline.current = !isOnline;
     if (dropped && phase === 'confirm') {
+      confirmationVersion.current += 1;
       setPendingQuote(null);
       setPhase(null);
       setSubmitError(
@@ -194,6 +197,7 @@ export default function SendMoney() {
   }, [isOnline, phase]);
 
   function refreshPendingQuote() {
+    confirmationVersion.current += 1;
     const parsedAmount = parseCurrencyInput(amount, { currency: from, locale });
     if (!parsedAmount.ok) {
       setSubmitError(parsedAmount.error);
@@ -260,6 +264,7 @@ export default function SendMoney() {
       return;
     }
 
+    confirmationVersion.current += 1;
     setPendingQuote(finalQuote);
     setQuoteClock(Date.now());
     setPhase('confirm');
@@ -276,8 +281,20 @@ export default function SendMoney() {
 
     submissionLock.current = true;
     setSubmitting(true);
+    const startedVersion = confirmationVersion.current;
     try {
       const transferWallet = isConnected ? wallet : await connect();
+      // A cleared or refreshed quote must not resume from the pre-connect render.
+      if (startedVersion !== confirmationVersion.current) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        confirmationVersion.current += 1;
+        setPendingQuote(null);
+        setPhase(null);
+        setSubmitError(
+          "You're offline. The pending quote was cleared — reconnect and review again.",
+        );
+        return;
+      }
       if (!transferWallet) {
         setSubmitError(
           'Wallet connection did not complete. Connect your wallet and try again.',
