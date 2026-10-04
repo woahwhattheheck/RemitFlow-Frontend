@@ -238,13 +238,24 @@ export function pageFromSnapshot(snapshot, liveTransfers, options = {}) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
   const start = (page - 1) * pageSize;
   const slice = snapshot.items.slice(start, start + pageSize);
-  // Only visible snapshot IDs need fresh fields. Scan the current list without
-  // allocating a full-history Map or a temporary pair for every transfer.
-  // Keep scanning after a match: the last duplicate ID wins, as in Map(rows).
+  // Only visible snapshot IDs need fresh fields. Walk arrays backward so the
+  // first match is the last duplicate, as in Map(rows), and stop once every
+  // visible ID is resolved. Missing IDs still require the complete scan.
   const pageIds = new Set(slice.map((ref) => ref.id));
   const byId = new Map();
-  for (const transfer of liveTransfers ?? []) {
-    if (pageIds.has(transfer.id)) byId.set(transfer.id, transfer);
+  if (
+    Array.isArray(liveTransfers) &&
+    liveTransfers[Symbol.iterator] === Array.prototype[Symbol.iterator]
+  ) {
+    for (let i = liveTransfers.length - 1; i >= 0 && pageIds.size > 0; i -= 1) {
+      const transfer = liveTransfers[i];
+      if (pageIds.delete(transfer.id)) byId.set(transfer.id, transfer);
+    }
+  } else if (pageIds.size > 0) {
+    // Keep the existing forward-only iterable contract and duplicate policy.
+    for (const transfer of liveTransfers ?? []) {
+      if (pageIds.has(transfer.id)) byId.set(transfer.id, transfer);
+    }
   }
   // Keep a complete snapshot even if a row disappears or changes its active
   // filter after the snapshot was taken. Fresh fields win while it remains live.
