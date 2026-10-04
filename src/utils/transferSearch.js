@@ -8,7 +8,7 @@
  */
 
 import { normalizeStatus } from '../services/contracts/transfer.js';
-import { isWithinDateRange } from './dateRange.js';
+import { getDateRangeDays } from './dateRange.js';
 
 /** Debounce window for free-text search queries (ms). */
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -88,24 +88,34 @@ export function matchesTransferFilters(
   filters = {},
   now = new Date(),
 ) {
+  const matches = prepareTransferFilters(filters, now);
+  return matches ? matches(transfer) : true;
+}
+
+/** Prepare only query-owned values; each invocation still reads fresh rows. */
+function prepareTransferFilters(filters, now) {
   const status = filters.status
     ? (normalizeStatus(filters.status) ?? filters.status)
     : '';
-  if (status && normalizeStatus(transfer.status) !== status) return false;
+  const search = String(filters.search ?? '').trim().toLowerCase();
+  const days = getDateRangeDays(filters.range ?? '');
+  // Keep Date's clipping/invalid-window semantics, including oversized presets.
+  const cutoff = days
+    ? new Date(now.getTime() - days * 86_400_000).getTime()
+    : null;
 
-  const search = String(filters.search ?? '')
-    .trim()
-    .toLowerCase();
-  if (search) {
-    const recipient = String(transfer.recipient ?? '').toLowerCase();
-    if (!recipient.includes(search)) return false;
-  }
+  if (!status && !search && cutoff === null) return null;
 
-  if (!isWithinDateRange(transfer.createdAt, filters.range ?? '', now)) {
-    return false;
-  }
-
-  return true;
+  return (transfer) => {
+    if (status && normalizeStatus(transfer.status) !== status) return false;
+    if (
+      search &&
+      !String(transfer.recipient ?? '').toLowerCase().includes(search)
+    ) {
+      return false;
+    }
+    return cutoff === null || new Date(transfer.createdAt).getTime() >= cutoff;
+  };
 }
 
 /**
@@ -176,6 +186,7 @@ function retainSearchEntry(heap, entry, limit) {
 export function applyTransferSearch(transfers, query, options = {}) {
   const normalized = normalizeTransferQuery(query);
   const now = options.now ?? new Date();
+  const matchesFilters = prepareTransferFilters(normalized, now);
   const selected = [];
   let totalMatched = 0;
   const visibility = { legacyActorId: options.legacyActorId };
@@ -183,7 +194,7 @@ export function applyTransferSearch(transfers, query, options = {}) {
   (transfers ?? []).forEach((transfer, index) => {
     if (
       !isVisibleToActor(transfer, normalized.actorId, visibility) ||
-      !matchesTransferFilters(transfer, normalized, now)
+      (matchesFilters && !matchesFilters(transfer))
     ) {
       return;
     }
