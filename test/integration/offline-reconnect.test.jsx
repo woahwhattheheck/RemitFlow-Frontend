@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
@@ -82,9 +89,7 @@ describe('Offline and reconnect state for transfer mutations', () => {
     goOffline();
 
     expect(
-      await screen.findByText(
-        /you're offline\. some features may not work/i,
-      ),
+      await screen.findByText(/you're offline\. some features may not work/i),
     ).toBeInTheDocument();
   });
 
@@ -121,9 +126,13 @@ describe('Offline and reconnect state for transfer mutations', () => {
     goOnline();
 
     // After reconnecting, the button should change back to "Review & Send" and be enabled.
-    const submitButton = await screen.findByRole('button', {
-      name: /review & send/i,
-    }, { timeout: 5000 });
+    const submitButton = await screen.findByRole(
+      'button',
+      {
+        name: /review & send/i,
+      },
+      { timeout: 5000 },
+    );
     expect(submitButton).toBeEnabled();
 
     expect(createTransfer).not.toHaveBeenCalled();
@@ -144,7 +153,11 @@ describe('Offline and reconnect state for transfer mutations', () => {
       within(result).getByRole('button', { name: /view transfers/i }),
     );
 
-    await screen.findByRole('heading', { name: /your transfers/i }, { timeout: 10000 });
+    await screen.findByRole(
+      'heading',
+      { name: /your transfers/i },
+      { timeout: 10000 },
+    );
     expect(createTransfer).toHaveBeenCalledTimes(1);
   });
 

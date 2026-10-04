@@ -21,7 +21,7 @@ let quoteIdSequence = 0;
  * @returns {string}
  */
 export function mintQuoteId(seed) {
-  if (seed != null && seed !== "") {
+  if (seed != null && seed !== '') {
     return `qt_${fnv1a(String(seed))}`;
   }
   if (globalThis.crypto?.randomUUID) {
@@ -30,7 +30,7 @@ export function mintQuoteId(seed) {
   if (globalThis.crypto?.getRandomValues) {
     const bytes = new Uint8Array(12);
     globalThis.crypto.getRandomValues(bytes);
-    return `qt_${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    return `qt_${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
   }
   return `qt_${Date.now().toString(36)}_${(++quoteIdSequence).toString(36)}`;
 }
@@ -41,7 +41,7 @@ function fnv1a(input) {
     hash ^= input.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 /**
@@ -75,10 +75,16 @@ export function validateCurrencyPair(from, to) {
   const toMeta = getCurrency(toCode);
 
   if (!fromMeta) {
-    return { ok: false, error: `Unsupported source currency: ${fromCode || '(empty)'}.` };
+    return {
+      ok: false,
+      error: `Unsupported source currency: ${fromCode || '(empty)'}.`,
+    };
   }
   if (!toMeta) {
-    return { ok: false, error: `Unsupported destination currency: ${toCode || '(empty)'}.` };
+    return {
+      ok: false,
+      error: `Unsupported destination currency: ${toCode || '(empty)'}.`,
+    };
   }
   if (fromCode === toCode) {
     return { ok: false, error: 'Source and destination must differ.' };
@@ -110,8 +116,10 @@ export function isQuoteBoundToInputs(quote, inputs) {
   // priced fields directly so a currency swap still invalidates the binding.
   return (
     normalizeAmount(quote.sendAmount) === normalizeAmount(inputs?.amount) &&
-    String(quote.from ?? '').toUpperCase() === String(inputs?.from ?? '').toUpperCase() &&
-    String(quote.to ?? '').toUpperCase() === String(inputs?.to ?? '').toUpperCase()
+    String(quote.from ?? '').toUpperCase() ===
+      String(inputs?.from ?? '').toUpperCase() &&
+    String(quote.to ?? '').toUpperCase() ===
+      String(inputs?.to ?? '').toUpperCase()
   );
 }
 
@@ -140,7 +148,11 @@ export function amountsReconcile(displayed, serialized) {
  */
 export function assertQuoteSignable(quote, inputs, now = Date.now()) {
   if (!quote?.id) {
-    return { ok: false, code: 'missing_quote_id', reason: 'Quote is missing an id and cannot be confirmed.' };
+    return {
+      ok: false,
+      code: 'missing_quote_id',
+      reason: 'Quote is missing an id and cannot be confirmed.',
+    };
   }
 
   const corridor = validateCurrencyPair(inputs?.from, inputs?.to);
@@ -148,8 +160,10 @@ export function assertQuoteSignable(quote, inputs, now = Date.now()) {
     return { ok: false, code: 'currency_matrix', reason: corridor.error };
   }
 
-  if (String(quote.from).toUpperCase() !== String(inputs.from).toUpperCase() ||
-      String(quote.to).toUpperCase() !== String(inputs.to).toUpperCase()) {
+  if (
+    String(quote.from).toUpperCase() !== String(inputs.from).toUpperCase() ||
+    String(quote.to).toUpperCase() !== String(inputs.to).toUpperCase()
+  ) {
     return {
       ok: false,
       code: 'currency_mismatch',

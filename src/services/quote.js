@@ -13,10 +13,7 @@ import {
   QUOTE_TTL_MS,
   parseQuote,
 } from './contracts/quote.js';
-import {
-  mintQuoteId,
-  quoteInputFingerprint,
-} from '../utils/quoteBinding.js';
+import { mintQuoteId, quoteInputFingerprint } from '../utils/quoteBinding.js';
 import {
   convertMinorUnits,
   currencyExponent,

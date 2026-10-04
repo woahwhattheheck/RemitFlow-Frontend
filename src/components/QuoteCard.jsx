@@ -68,8 +68,7 @@ export default function QuoteCard({
             {fromMeta
               ? `${fromMeta.flag} ${from} (${fromMeta.minorUnits}dp)`
               : from}{' '}
-            →{' '}
-            {toMeta ? `${toMeta.flag} ${to} (${toMeta.minorUnits}dp)` : to}
+            → {toMeta ? `${toMeta.flag} ${to} (${toMeta.minorUnits}dp)` : to}
           </span>
         </div>
       </div>
@@ -146,4 +145,3 @@ function shortId(id) {
   if (!id || id.length <= 16) return id;
   return `${id.slice(0, 10)}…${id.slice(-4)}`;
 }
-

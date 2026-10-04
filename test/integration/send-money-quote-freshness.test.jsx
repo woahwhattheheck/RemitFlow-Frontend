@@ -1,9 +1,4 @@
-import {
-  act,
-  render,
-  screen,
-  within,
-} from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/App.jsx';
@@ -81,7 +76,9 @@ describe('Send money quote freshness', () => {
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     ).toBeDisabled();
 
-    await user.click(within(dialog).getByRole('button', { name: /refresh quote/i }));
+    await user.click(
+      within(dialog).getByRole('button', { name: /refresh quote/i }),
+    );
     expect(
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     ).not.toBeDisabled();
@@ -90,7 +87,11 @@ describe('Send money quote freshness', () => {
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     );
 
-    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
     expect(createSpy).toHaveBeenCalled();
     expect(createSpy.mock.calls[0][0].quoteId).toMatch(/^qt_/);
   });
@@ -108,13 +109,23 @@ describe('Send money quote freshness', () => {
     const dialog = await screen.findByRole('dialog', {
       name: /confirm your transfer/i,
     });
-    const card = within(dialog).getByText(/transfer summary/i).closest('.quote-card');
+    const card = within(dialog)
+      .getByText(/transfer summary/i)
+      .closest('.quote-card');
     const quoteId = card.getAttribute('data-quote-id');
     expect(quoteId).toMatch(/^qt_/);
-    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent('15,00');
+    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent(
+      '15,00',
+    );
 
-    await user.click(within(dialog).getByRole('button', { name: /confirm transfer/i }));
-    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+    await user.click(
+      within(dialog).getByRole('button', { name: /confirm transfer/i }),
+    );
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
 
     const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
     const transfer = stored.find((entry) => entry.quoteId === quoteId);
@@ -146,17 +157,30 @@ describe('Send money quote freshness', () => {
     const dialog = await screen.findByRole('dialog', {
       name: /confirm your transfer/i,
     });
-    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent('15,00');
+    expect(within(dialog).getByTestId('quote-send-amount')).toHaveTextContent(
+      '15,00',
+    );
 
-    await user.click(within(dialog).getByRole('button', { name: /confirm transfer/i }));
-    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+    await user.click(
+      within(dialog).getByRole('button', { name: /confirm transfer/i }),
+    );
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
     const stored = JSON.parse(localStorage.getItem('remitflow.transfers'));
     const transfer = stored.find((entry) => entry.quoteId);
     expect(transfer.sendAmount).toBe('15');
   });
 
   it.each([
-    { label: 'integer balance', amount: '15,00', balance: 100, canonical: '15' },
+    {
+      label: 'integer balance',
+      amount: '15,00',
+      balance: 100,
+      canonical: '15',
+    },
     {
       label: 'exact fractional balance',
       amount: '25,50',
@@ -405,7 +429,9 @@ describe('Send money quote freshness', () => {
       });
 
       expect(createSpy).not.toHaveBeenCalled();
-      expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual([]);
+      expect(JSON.parse(localStorage.getItem('remitflow.transfers'))).toEqual(
+        [],
+      );
       expect(
         screen.queryByRole('dialog', { name: /transfer submitted/i }),
       ).not.toBeInTheDocument();
@@ -416,7 +442,9 @@ describe('Send money quote freshness', () => {
           window.dispatchEvent(new Event('online'));
         });
       }
-      const reviewButton = screen.getByRole('button', { name: /review & send/i });
+      const reviewButton = screen.getByRole('button', {
+        name: /review & send/i,
+      });
       expect(reviewButton).toBeEnabled();
       await user.click(reviewButton);
       const retryDialog = await screen.findByRole('dialog', {
@@ -444,12 +472,14 @@ describe('Send money quote freshness', () => {
 
   it('binds the quote id into the createTransfer payload', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const createSpy = vi.spyOn(api, 'createTransfer').mockImplementation(async (payload) => ({
-      id: 'tx_bound',
-      status: 'pending',
-      createdAt: '2026-09-24T19:00:00Z',
-      ...payload,
-    }));
+    const createSpy = vi
+      .spyOn(api, 'createTransfer')
+      .mockImplementation(async (payload) => ({
+        id: 'tx_bound',
+        status: 'pending',
+        createdAt: '2026-09-24T19:00:00Z',
+        ...payload,
+      }));
 
     render(<App />);
     await fillValidForm(user);
@@ -461,7 +491,11 @@ describe('Send money quote freshness', () => {
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     );
 
-    await screen.findByRole('dialog', { name: /transfer submitted/i }, { timeout: 5000 });
+    await screen.findByRole(
+      'dialog',
+      { name: /transfer submitted/i },
+      { timeout: 5000 },
+    );
     const payload = createSpy.mock.calls[0][0];
     expect(payload.quoteId).toMatch(/^qt_/);
     expect(payload.sendAmount).toBeDefined();

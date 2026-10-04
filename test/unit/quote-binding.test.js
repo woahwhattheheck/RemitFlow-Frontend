@@ -39,30 +39,35 @@ describe('quoteBinding', () => {
   });
 
   it('fingerprints inputs canonically', () => {
-    expect(quoteInputFingerprint({ amount: '10.00', from: 'usd', to: 'ngn' })).toBe(
-      quoteInputFingerprint({ amount: '10', from: 'USD', to: 'NGN' }),
-    );
+    expect(
+      quoteInputFingerprint({ amount: '10.00', from: 'usd', to: 'ngn' }),
+    ).toBe(quoteInputFingerprint({ amount: '10', from: 'USD', to: 'NGN' }));
   });
 
   it('binds a built quote to its priced inputs', () => {
     const quote = buildQuote('25.50', 'USD', 'NGN', { now: NOW });
     expect(quote.id).toMatch(/^qt_/);
     expect(quote.source).toBe('fx.table');
-    expect(isQuoteBoundToInputs(quote, { amount: '25.50', from: 'USD', to: 'NGN' })).toBe(
-      true,
-    );
-    expect(isQuoteBoundToInputs(quote, { amount: '25.51', from: 'USD', to: 'NGN' })).toBe(
-      false,
-    );
-    expect(isQuoteBoundToInputs(quote, { amount: '25.50', from: 'USD', to: 'INR' })).toBe(
-      false,
-    );
+    expect(
+      isQuoteBoundToInputs(quote, { amount: '25.50', from: 'USD', to: 'NGN' }),
+    ).toBe(true);
+    expect(
+      isQuoteBoundToInputs(quote, { amount: '25.51', from: 'USD', to: 'NGN' }),
+    ).toBe(false);
+    expect(
+      isQuoteBoundToInputs(quote, { amount: '25.50', from: 'USD', to: 'INR' }),
+    ).toBe(false);
   });
 
   it('rejects expired quotes at confirmation', () => {
-    const quote = buildQuote('10', 'USD', 'NGN', { now: NOW, ttlMs: QUOTE_TTL_MS });
+    const quote = buildQuote('10', 'USD', 'NGN', {
+      now: NOW,
+      ttlMs: QUOTE_TTL_MS,
+    });
     const inputs = { amount: '10.00', from: 'USD', to: 'NGN' };
-    expect(assertQuoteSignable(quote, inputs, NOW + QUOTE_TTL_MS - 1).ok).toBe(true);
+    expect(assertQuoteSignable(quote, inputs, NOW + QUOTE_TTL_MS - 1).ok).toBe(
+      true,
+    );
     const expired = assertQuoteSignable(quote, inputs, NOW + QUOTE_TTL_MS);
     expect(expired.ok).toBe(false);
     expect(expired.code).toBe('expired');
@@ -70,11 +75,15 @@ describe('quoteBinding', () => {
 
   it('rejects changed inputs after pricing', () => {
     const quote = buildQuote('10', 'USD', 'NGN', { now: NOW });
-    const result = assertQuoteSignable(quote, {
-      amount: '11.00',
-      from: 'USD',
-      to: 'NGN',
-    }, NOW);
+    const result = assertQuoteSignable(
+      quote,
+      {
+        amount: '11.00',
+        from: 'USD',
+        to: 'NGN',
+      },
+      NOW,
+    );
     expect(result.ok).toBe(false);
     expect(result.code).toBe('changed_input');
   });
@@ -93,9 +102,9 @@ describe('quoteBinding', () => {
   it('reconciles displayed and serialized amounts', () => {
     const quote = buildQuote('100.10', 'USD', 'NGN', { now: NOW });
     expect(amountsReconcile(quote, { ...quote })).toBe(true);
-    expect(
-      amountsReconcile(quote, { ...quote, receiveAmount: '1.00' }),
-    ).toBe(false);
+    expect(amountsReconcile(quote, { ...quote, receiveAmount: '1.00' })).toBe(
+      false,
+    );
   });
 
   it('reports remaining seconds without going negative', () => {
@@ -107,11 +116,15 @@ describe('quoteBinding', () => {
   it('refuses to sign a quote without an id', () => {
     const quote = buildQuote('10', 'USD', 'NGN', { now: NOW });
     const { id, ...rest } = quote;
-    const result = assertQuoteSignable(rest, {
-      amount: '10.00',
-      from: 'USD',
-      to: 'NGN',
-    }, NOW);
+    const result = assertQuoteSignable(
+      rest,
+      {
+        amount: '10.00',
+        from: 'USD',
+        to: 'NGN',
+      },
+      NOW,
+    );
     expect(result.ok).toBe(false);
     expect(result.code).toBe('missing_quote_id');
   });
