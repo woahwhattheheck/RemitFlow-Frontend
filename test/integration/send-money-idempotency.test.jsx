@@ -400,7 +400,10 @@ describe('SendMoney duplicate-submission guard', () => {
       .mockImplementation(function (key, value) {
         if (this === sessionStorage && key === RECOVERY_STORAGE_KEY) {
           attemptedOperations.push(...Object.values(JSON.parse(value)));
-          throw new DOMException('private storage detail', 'QuotaExceededError');
+          throw new DOMException(
+            'private storage detail',
+            'QuotaExceededError',
+          );
         }
         return nativeSetItem.call(this, key, value);
       });
@@ -410,7 +413,9 @@ describe('SendMoney duplicate-submission guard', () => {
     await fillValidForm(user);
     await confirmCurrentForm(user);
 
-    expect(await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`)).toBeInTheDocument();
+    expect(
+      await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`),
+    ).toBeInTheDocument();
     expect(createSpy).not.toHaveBeenCalled();
     expect(attemptedOperations).toHaveLength(1);
     expect(attemptedOperations[0].status).toBe('submitting');
@@ -461,7 +466,10 @@ describe('SendMoney duplicate-submission guard', () => {
         recipient: 'amina@example.com',
       }),
     );
-    const idempotencyKey = await idempotencyKeyFor(fingerprint, 'existing-intent');
+    const idempotencyKey = await idempotencyKeyFor(
+      fingerprint,
+      'existing-intent',
+    );
     saveTransferOperation({ idempotencyKey, fingerprint, status: 'unknown' });
     const storedBefore = sessionStorage.getItem(RECOVERY_STORAGE_KEY);
     const nativeGetItem = Storage.prototype.getItem;
@@ -482,7 +490,9 @@ describe('SendMoney duplicate-submission guard', () => {
     const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
     await confirmCurrentForm(user);
 
-    expect(await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`)).toBeInTheDocument();
+    expect(
+      await screen.findByText(`⚠️ ${NOT_SUBMITTED_MESSAGE}`),
+    ).toBeInTheDocument();
     expect(readFailures).toBe(1);
     expect(createSpy).not.toHaveBeenCalled();
     const journalWrites = writeSpy.mock.calls.filter(
@@ -526,7 +536,10 @@ describe('SendMoney duplicate-submission guard', () => {
           const operations = Object.values(JSON.parse(value));
           if (operations.some((op) => op.status === 'succeeded')) {
             statusWriteFailures += 1;
-            throw new DOMException('private status detail', 'QuotaExceededError');
+            throw new DOMException(
+              'private status detail',
+              'QuotaExceededError',
+            );
           }
         }
         return nativeSetItem.call(this, key, value);

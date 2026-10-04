@@ -32,15 +32,20 @@ describe('transferIntent', () => {
 
   it('keeps distinct integer amounts and full decimal precision', () => {
     const base = {
-      recipient: 'amina@example.com', from: 'USD', to: 'NGN',
-      receiveAmount: 1500, fee: 1, rate: 1500,
+      recipient: 'amina@example.com',
+      from: 'USD',
+      to: 'NGN',
+      receiveAmount: 1500,
+      fee: 1,
+      rate: 1500,
     };
     const fingerprints = [1, 10, 100, '0.000000001'].map((sendAmount) =>
       fingerprintTransferPayload({ ...base, sendAmount }),
     );
     expect(new Set(fingerprints).size).toBe(4);
-    expect(fingerprintTransferPayload({ ...base, sendAmount: '0.10' }))
-      .toBe(fingerprintTransferPayload({ ...base, sendAmount: 0.1 }));
+    expect(fingerprintTransferPayload({ ...base, sendAmount: '0.10' })).toBe(
+      fingerprintTransferPayload({ ...base, sendAmount: 0.1 }),
+    );
   });
 
   it('derives a stable idempotency key for the same fingerprint', async () => {
@@ -53,8 +58,14 @@ describe('transferIntent', () => {
 
   it('uses a new key for a separate identical transfer intent', async () => {
     const fingerprint = 'same recipient and amount';
-    const first = await idempotencyKeyFor(fingerprint, newTransferIntentNonce());
-    const second = await idempotencyKeyFor(fingerprint, newTransferIntentNonce());
+    const first = await idempotencyKeyFor(
+      fingerprint,
+      newTransferIntentNonce(),
+    );
+    const second = await idempotencyKeyFor(
+      fingerprint,
+      newTransferIntentNonce(),
+    );
     expect(second).not.toBe(first);
   });
 
@@ -71,7 +82,9 @@ describe('transferIntent', () => {
       status: 'submitting',
     });
     expect(getLatestRecoverableOperation()?.idempotencyKey).toBe('idem_abc');
-    expect(getLatestRecoverableOperation('fp')?.idempotencyKey).toBe('idem_abc');
+    expect(getLatestRecoverableOperation('fp')?.idempotencyKey).toBe(
+      'idem_abc',
+    );
     expect(getLatestRecoverableOperation('other')).toBeNull();
     clearTransferOperation('idem_abc');
     expect(getTransferOperation('idem_abc')).toBeNull();
@@ -149,21 +162,38 @@ describe('strict transfer recovery journal', () => {
     'accepts an empty journal %j and recovers the exact opaque intent key',
     async (raw) => {
       if (raw !== null) sessionStorage.setItem(storageKey, raw);
-      expect(getLatestRecoverableOperation(undefined, { strict: true })).toBeNull();
+      expect(
+        getLatestRecoverableOperation(undefined, { strict: true }),
+      ).toBeNull();
       const payload = {
-        recipient: 'amina@example.com', from: 'USD', to: 'NGN',
-        sendAmount: '25', receiveAmount: '36642.38', fee: '0.25', rate: '1480.5',
+        recipient: 'amina@example.com',
+        from: 'USD',
+        to: 'NGN',
+        sendAmount: '25',
+        receiveAmount: '36642.38',
+        fee: '0.25',
+        rate: '1480.5',
       };
-      const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
-      const idempotencyKey = await idempotencyKeyFor(fingerprint, newTransferIntentNonce());
-      saveTransferOperation({
-        ...payload,
-        idempotencyKey,
+      const fingerprint = await idempotencyKeyFor(
+        fingerprintTransferPayload(payload),
+      );
+      const idempotencyKey = await idempotencyKeyFor(
         fingerprint,
-        status: 'submitting',
-      }, { strict: true });
+        newTransferIntentNonce(),
+      );
+      saveTransferOperation(
+        {
+          ...payload,
+          idempotencyKey,
+          fingerprint,
+          status: 'submitting',
+        },
+        { strict: true },
+      );
 
-      const recovered = getLatestRecoverableOperation(fingerprint, { strict: true });
+      const recovered = getLatestRecoverableOperation(fingerprint, {
+        strict: true,
+      });
       expect(recovered).toEqual({
         idempotencyKey,
         fingerprint,
@@ -176,22 +206,29 @@ describe('strict transfer recovery journal', () => {
       expect(stored).not.toContain(payload.recipient);
       expect(JSON.parse(stored)).toEqual({ [idempotencyKey]: recovered });
 
-      saveTransferOperation({ ...recovered, status: 'unknown' }, { strict: true });
-      expect(getLatestRecoverableOperation(fingerprint, { strict: true })).toMatchObject({
+      saveTransferOperation(
+        { ...recovered, status: 'unknown' },
+        { strict: true },
+      );
+      expect(
+        getLatestRecoverableOperation(fingerprint, { strict: true }),
+      ).toMatchObject({
         idempotencyKey,
         fingerprint,
         status: 'unknown',
       });
-      expect(Object.keys(JSON.parse(sessionStorage.getItem(storageKey)))).toEqual([
-        idempotencyKey,
-      ]);
+      expect(
+        Object.keys(JSON.parse(sessionStorage.getItem(storageKey))),
+      ).toEqual([idempotencyKey]);
     },
   );
 
   it('preserves unrelated stored operations when a strict save succeeds', () => {
     saveTransferOperation({
-      idempotencyKey: 'idem_prior', fingerprint: 'prior_fp',
-      transferId: 'tx_prior', status: 'succeeded',
+      idempotencyKey: 'idem_prior',
+      fingerprint: 'prior_fp',
+      transferId: 'tx_prior',
+      status: 'succeeded',
     });
     const prior = JSON.parse(sessionStorage.getItem(storageKey)).idem_prior;
     saveTransferOperation(operation, { strict: true });
@@ -203,57 +240,83 @@ describe('strict transfer recovery journal', () => {
 
   it('rejects failed strict writes without changing saved bytes and retries the same key', () => {
     saveTransferOperation({
-      idempotencyKey: 'idem_prior', fingerprint: 'prior_fp', status: 'unknown',
+      idempotencyKey: 'idem_prior',
+      fingerprint: 'prior_fp',
+      status: 'unknown',
     });
     const storedBefore = sessionStorage.getItem(storageKey);
     const nativeSetItem = Storage.prototype.setItem;
-    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
       .mockImplementation(function (key, value) {
         if (this === sessionStorage && key === storageKey) {
-          throw new DOMException('Private write failure detail', 'QuotaExceededError');
+          throw new DOMException(
+            'Private write failure detail',
+            'QuotaExceededError',
+          );
         }
         return nativeSetItem.call(this, key, value);
       });
 
-    expectStorageError(() => saveTransferOperation(operation, { strict: true }));
+    expectStorageError(() =>
+      saveTransferOperation(operation, { strict: true }),
+    );
     expect(setItem).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(storageKey)).toBe(storedBefore);
-    expect(getLatestRecoverableOperation(operation.fingerprint, { strict: true })).toBeNull();
-    expect(getLatestRecoverableOperation('prior_fp', { strict: true })?.idempotencyKey)
-      .toBe('idem_prior');
+    expect(
+      getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
+    ).toBeNull();
+    expect(
+      getLatestRecoverableOperation('prior_fp', { strict: true })
+        ?.idempotencyKey,
+    ).toBe('idem_prior');
 
     setItem.mockRestore();
     saveTransferOperation(operation, { strict: true });
-    expect(getLatestRecoverableOperation(operation.fingerprint, { strict: true }))
-      .toMatchObject(operation);
-    expect(JSON.parse(sessionStorage.getItem(storageKey)).idem_prior)
-      .toEqual(JSON.parse(storedBefore).idem_prior);
+    expect(
+      getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
+    ).toMatchObject(operation);
+    expect(JSON.parse(sessionStorage.getItem(storageKey)).idem_prior).toEqual(
+      JSON.parse(storedBefore).idem_prior,
+    );
   });
 
   it('rejects inaccessible reads before lookup or overwrite and recovers the saved key', () => {
     saveTransferOperation(operation);
     const storedBefore = sessionStorage.getItem(storageKey);
     const nativeGetItem = Storage.prototype.getItem;
-    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (key) {
-      if (this === sessionStorage && key === storageKey) {
-        throw new DOMException('Private read failure detail', 'SecurityError');
-      }
-      return nativeGetItem.call(this, key);
-    });
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(function (key) {
+        if (this === sessionStorage && key === storageKey) {
+          throw new DOMException(
+            'Private read failure detail',
+            'SecurityError',
+          );
+        }
+        return nativeGetItem.call(this, key);
+      });
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
     expectStorageError(() =>
       getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
     );
-    expectStorageError(() => saveTransferOperation({
-      ...operation, idempotencyKey: 'idem_replacement',
-    }, { strict: true }));
+    expectStorageError(() =>
+      saveTransferOperation(
+        {
+          ...operation,
+          idempotencyKey: 'idem_replacement',
+        },
+        { strict: true },
+      ),
+    );
     expect(setItem).not.toHaveBeenCalled();
 
     getItem.mockRestore();
     expect(sessionStorage.getItem(storageKey)).toBe(storedBefore);
-    expect(getLatestRecoverableOperation(operation.fingerprint, { strict: true }))
-      .toMatchObject(operation);
+    expect(
+      getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
+    ).toMatchObject(operation);
     expect(setItem).not.toHaveBeenCalled();
   });
 
@@ -268,19 +331,32 @@ describe('strict transfer recovery journal', () => {
     expectStorageError(() =>
       getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
     );
-    expect(getLatestRecoverableOperation(operation.fingerprint, { strict: true }))
-      .toMatchObject(operation);
+    expect(
+      getLatestRecoverableOperation(operation.fingerprint, { strict: true }),
+    ).toMatchObject(operation);
     expect(sessionStorage.getItem(storageKey)).toBe(storedBefore);
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it.each(['', '{private-journal-data', '[]', 'null', '1', 'true', '"private-journal-data"'])(
+  it.each([
+    '',
+    '{private-journal-data',
+    '[]',
+    'null',
+    '1',
+    'true',
+    '"private-journal-data"',
+  ])(
     'rejects a present invalid journal %j without replacing its bytes',
     (raw) => {
       sessionStorage.setItem(storageKey, raw);
       const setItem = vi.spyOn(Storage.prototype, 'setItem');
-      expectStorageError(() => getLatestRecoverableOperation(undefined, { strict: true }));
-      expectStorageError(() => saveTransferOperation(operation, { strict: true }));
+      expectStorageError(() =>
+        getLatestRecoverableOperation(undefined, { strict: true }),
+      );
+      expectStorageError(() =>
+        saveTransferOperation(operation, { strict: true }),
+      );
       expect(setItem).not.toHaveBeenCalled();
       expect(sessionStorage.getItem(storageKey)).toBe(raw);
     },
@@ -292,25 +368,36 @@ describe('strict transfer recovery journal', () => {
       saveTransferOperation(operation, { strict: true });
       const storedBefore = sessionStorage.getItem(storageKey);
       const nativeSetItem = Storage.prototype.setItem;
-      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
-        if (this === sessionStorage && key === storageKey) {
-          throw new DOMException('Private status-write detail', 'QuotaExceededError');
-        }
-        return nativeSetItem.call(this, key, value);
-      });
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
+        function (key, value) {
+          if (this === sessionStorage && key === storageKey) {
+            throw new DOMException(
+              'Private status-write detail',
+              'QuotaExceededError',
+            );
+          }
+          return nativeSetItem.call(this, key, value);
+        },
+      );
 
-      expect(() => saveTransferOperation({ ...operation, status })).not.toThrow();
+      expect(() =>
+        saveTransferOperation({ ...operation, status }),
+      ).not.toThrow();
       expect(sessionStorage.getItem(storageKey)).toBe(storedBefore);
-      expect(getLatestRecoverableOperation(operation.fingerprint)).toMatchObject(operation);
+      expect(
+        getLatestRecoverableOperation(operation.fingerprint),
+      ).toMatchObject(operation);
     },
   );
 
   it('keeps default recovery reads best-effort when storage is unavailable', () => {
     saveTransferOperation(operation);
     const storedBefore = sessionStorage.getItem(storageKey);
-    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new DOMException('Private recovery detail', 'SecurityError');
-    });
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new DOMException('Private recovery detail', 'SecurityError');
+      });
     expect(getLatestRecoverableOperation(operation.fingerprint)).toBeNull();
     expect(getTransferOperation(operation.idempotencyKey)).toBeNull();
     getItem.mockRestore();

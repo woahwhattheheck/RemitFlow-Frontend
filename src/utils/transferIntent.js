@@ -25,7 +25,9 @@ export class TransferOperationStorageError extends Error {
 /** Old 32-bit fingerprints cannot safely bind a new request to a saved intent. */
 export class LegacyTransferOperationError extends Error {
   constructor() {
-    super('A transfer from an older browser session needs reconciliation. Check Transfers before starting another transfer. This attempt was not submitted.');
+    super(
+      'A transfer from an older browser session needs reconciliation. Check Transfers before starting another transfer. This attempt was not submitted.',
+    );
     this.name = 'LegacyTransferOperationError';
   }
 }
@@ -61,7 +63,9 @@ export function newTransferIntentNonce() {
   if (globalThis.crypto?.getRandomValues) {
     const bytes = new Uint8Array(16);
     globalThis.crypto.getRandomValues(bytes);
-    return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    return [...bytes]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
   }
   return `${Date.now().toString(36)}:${++nonceSequence}:${Math.random().toString(36).slice(2)}`;
 }
@@ -73,7 +77,8 @@ export function newTransferIntentNonce() {
  * @param {string} [nonce]
  */
 export async function idempotencyKeyFor(fingerprint, nonce) {
-  const input = nonce === undefined ? fingerprint : JSON.stringify([fingerprint, nonce]);
+  const input =
+    nonce === undefined ? fingerprint : JSON.stringify([fingerprint, nonce]);
   if (globalThis.crypto?.subtle) {
     const data = new TextEncoder().encode(input);
     const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
@@ -93,7 +98,10 @@ function readOps({ strict = false } = {}) {
     const raw = sessionStorage.getItem(OPS_KEY);
     if (raw === null || (!strict && !raw)) return {};
     const parsed = JSON.parse(raw);
-    if (strict && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+    if (
+      strict &&
+      (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    ) {
       throw new TransferOperationStorageError();
     }
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -147,13 +155,20 @@ export function getLatestRecoverableOperation(fingerprint, options) {
   const recoverable = new Set(['submitting', 'unknown', 'succeeded']);
   const ops = Object.values(readOps(options));
   const matches = ops
-    .filter((op) => op && recoverable.has(op.status) &&
-      (fingerprint === undefined || op.fingerprint === fingerprint))
+    .filter(
+      (op) =>
+        op &&
+        recoverable.has(op.status) &&
+        (fingerprint === undefined || op.fingerprint === fingerprint),
+    )
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   const match = matches[0] ?? null;
   const legacy = (op) => /^idem_[0-9a-f]{8}$/.test(op?.fingerprint ?? '');
-  if (options?.strict && (!match || legacy(match)) &&
-      ops.some((op) => op && recoverable.has(op.status) && legacy(op))) {
+  if (
+    options?.strict &&
+    (!match || legacy(match)) &&
+    ops.some((op) => op && recoverable.has(op.status) && legacy(op))
+  ) {
     // Do not mint a replacement key or guess which payload an old collision
     // represented. Default reads still permit reconciliation by the saved key.
     // A separately saved strong match can still be retried without a new key.

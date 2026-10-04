@@ -1,4 +1,3 @@
-
 import {
   act,
   fireEvent,
@@ -62,6 +61,8 @@ describe('Send money form flows', () => {
     window.history.pushState({}, '', '/send');
     localStorage.clear();
     sessionStorage.clear();
+    // Keep the mock wallet's random rejection out of submission-guard tests.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -114,7 +115,9 @@ describe('Send money form flows', () => {
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     );
 
-    expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled();
+    expect(
+      within(dialog).getByRole('button', { name: /sending/i }),
+    ).toBeDisabled();
     expect(createTransfer).not.toHaveBeenCalled();
 
     const resultDialog = await screen.findByRole(
@@ -201,7 +204,9 @@ describe('Send money form flows', () => {
       within(dialog).getByRole('button', { name: /confirm transfer/i }),
     );
 
-    expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/something went wrong/i),
+    ).toBeInTheDocument();
     const retryButton = screen.getByRole('button', { name: /review & send/i });
     expect(retryButton).toBeEnabled();
 

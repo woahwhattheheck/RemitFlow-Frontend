@@ -85,16 +85,30 @@ export default function SendMoney() {
     intentFingerprintRef.current = recoverable.fingerprint;
     const existing =
       (recoverable.transferId && getTransferById(recoverable.transferId)) ||
-      transfers.find((transfer) => transfer.idempotencyKey === recoverable.idempotencyKey);
+      transfers.find(
+        (transfer) => transfer.idempotencyKey === recoverable.idempotencyKey,
+      );
     if (existing) {
-      if (recoverable.status !== 'succeeded' || recoverable.transferId !== existing.id) {
-        saveTransferOperation({ ...recoverable, transferId: existing.id, status: 'succeeded' });
+      if (
+        recoverable.status !== 'succeeded' ||
+        recoverable.transferId !== existing.id
+      ) {
+        saveTransferOperation({
+          ...recoverable,
+          transferId: existing.id,
+          status: 'succeeded',
+        });
       }
       setSubmitError(null);
       setSubmittedTransfer(existing);
       setPhase('success');
-    } else if (recoverable.status === 'unknown' || recoverable.status === 'submitting') {
-      setSubmitError('Transfer status is unknown. Check Transfers, or re-enter the same details to retry safely.');
+    } else if (
+      recoverable.status === 'unknown' ||
+      recoverable.status === 'submitting'
+    ) {
+      setSubmitError(
+        'Transfer status is unknown. Check Transfers, or re-enter the same details to retry safely.',
+      );
     }
   }, [getTransferById, transfers]);
 
@@ -206,7 +220,9 @@ export default function SendMoney() {
     }
     const finalQuote = buildQuote(parsedAmount.value, from, to);
     if (!finalQuote) {
-      applyErrors({ amount: 'Enter an amount greater than zero.' });
+      setSubmitError(
+        'We could not price this transfer. Check the amount and the selected currencies.',
+      );
       return;
     }
 
@@ -281,10 +297,18 @@ export default function SendMoney() {
         expiresAt: finalQuote.expiresAt,
       };
       // Persist only an opaque fingerprint, never recipient or quote details.
-      const fingerprint = await idempotencyKeyFor(fingerprintTransferPayload(payload));
-      if (intentFingerprintRef.current !== fingerprint || !intentKeyRef.current) {
-        const recoverable = getLatestRecoverableOperation(fingerprint, { strict: true });
-        intentKeyRef.current = recoverable?.idempotencyKey ??
+      const fingerprint = await idempotencyKeyFor(
+        fingerprintTransferPayload(payload),
+      );
+      if (
+        intentFingerprintRef.current !== fingerprint ||
+        !intentKeyRef.current
+      ) {
+        const recoverable = getLatestRecoverableOperation(fingerprint, {
+          strict: true,
+        });
+        intentKeyRef.current =
+          recoverable?.idempotencyKey ??
           (await idempotencyKeyFor(fingerprint, newTransferIntentNonce()));
         intentFingerprintRef.current = fingerprint;
       }
@@ -525,11 +549,7 @@ export default function SendMoney() {
       )}
 
       {phase === 'success' && submittedTransfer && (
-        <Modal
-          open
-          onClose={dismissSuccess}
-          title="Transfer submitted"
-        >
+        <Modal open onClose={dismissSuccess} title="Transfer submitted">
           <p className="send-result-status" role="status" aria-live="polite">
             Your transfer was submitted successfully. Track its progress under
             Transfers.
@@ -565,10 +585,7 @@ export default function SendMoney() {
             </div>
           </dl>
           <div className="send-dialog-actions">
-            <Button
-              variant="secondary"
-              onClick={dismissSuccess}
-            >
+            <Button variant="secondary" onClick={dismissSuccess}>
               Close
             </Button>
             <Button onClick={() => navigate('/transfers')}>

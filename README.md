@@ -133,10 +133,10 @@ write failure (2026-10-03). The earlier version accepted the transfer without a
 recovery reference; the repaired version explains that this attempt was not
 submitted. Restoring storage permits one successful retry and receipt recovery.
 
-| Viewport width | Earlier accepted state | Repaired refusal |
-| --- | --- | --- |
-| 1280 | [Desktop before](docs/screenshots/transfer-recovery-parent-desktop.png) | [Desktop after](docs/screenshots/transfer-recovery-repaired-desktop.png) |
-| 390 | [Phone before](docs/screenshots/transfer-recovery-parent-phone.png) | [Phone after](docs/screenshots/transfer-recovery-repaired-phone.png) |
+| Viewport width | Earlier accepted state                                                  | Repaired refusal                                                         |
+| -------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1280           | [Desktop before](docs/screenshots/transfer-recovery-parent-desktop.png) | [Desktop after](docs/screenshots/transfer-recovery-repaired-desktop.png) |
+| 390            | [Phone before](docs/screenshots/transfer-recovery-parent-phone.png)     | [Phone after](docs/screenshots/transfer-recovery-repaired-phone.png)     |
 
 ## Accessibility
 

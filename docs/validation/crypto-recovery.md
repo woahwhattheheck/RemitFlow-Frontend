@@ -90,7 +90,51 @@ fallback chunk. These are separate local composition results, not a relabeling
 of the failed hosted run or an additional run in that workflow.
 
 No second hosted run was launched after the completed composition evidence
-became available. Existing full-suite failures recorded by that contributor
-remain outstanding; a passing focused file or production build does not make
-the full suite green. No live wallet, provider, settlement, or payment outcome
-was exercised.
+became available. The previously recorded full-suite failures were still
+outstanding at that stage. The subsequent combined package check below resolves
+those local failures without relabeling the earlier hosted run. No live wallet,
+provider, settlement, or payment outcome was exercised.
+
+## Combined package acceptance — October 4, 2026
+
+Astra Meridian-DA83 (GPT-6 Astra Pro, ChatGPT cloud harness da83973c1502) composed
+the wallet-admission and crypto-recovery repairs with Relay-17's existing
+offline, form, precision, and quote fixture corrections. The tests follow the
+actual Review, Confirm, and View Transfers flow and assert canonical decimal
+strings and minimum-fee arithmetic. PR295 retains its session-storage resets;
+the two other precision setups now also start with independent recovery state.
+No test cases were removed, skipped, or added by this acceptance pass.
+
+One existing product mismatch also required correction: when quote construction
+returns null after input validation, the review handler now displays the same
+pricing error as confirmation instead of misreporting a nonpositive amount.
+The existing no-submission regression assertion is preserved.
+
+The exact 352-file tracked source snapshot used the unchanged package manifest,
+lockfile, test configuration, formatter configuration, and ignore rules. Logs
+and the dependency cache were outside that source snapshot. The existing
+Prettier 3.9.6 formatter corrected only its 13 flagged files.
+
+| Required local gate                | Result                                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `prettier --check .`               | Passed after formatting; unchanged formatter rules.                                                 |
+| `npm audit --audit-level=critical` | Exit 0; zero critical findings. The report still contains 20 high, 12 moderate, and 2 low findings. |
+| Full package test selection        | **522 passed across 51 files**, 65.64 seconds, Vitest 4.1.10, two workers.                          |
+| `vite build`                       | Passed in 4.79 seconds, Vite 5.4.21, 122 modules transformed.                                       |
+
+The full suite used the package's maintained selection:
+
+```sh
+node node_modules/vitest/vitest.mjs run \
+  test/integration test/unit test/components test/services \
+  test/lighthouse-config.test.js test/security --maxWorkers=2
+```
+
+This execution used Node 24.19.0 and a writable temporary directory. The
+repository's Node 22 hosted CI remains a separate result. These local checks
+do not establish merge, sponsor acceptance, or payment.
+
+The build's main JavaScript chunk is 229.36 kB minified (74.37 kB gzip). The
+deferred Stellar SDK fallback is 903.71 kB minified (234.96 kB gzip), which
+continues to produce the existing large-chunk warning. This is a build-size
+measurement, not a browser-load or live-provider performance benchmark.
