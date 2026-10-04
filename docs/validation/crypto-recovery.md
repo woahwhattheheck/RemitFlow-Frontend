@@ -68,3 +68,29 @@ The file checks native/fallback UTF-8 key equivalence, the real collision pair,
 legacy states and unchanged journal bytes, independent strong retry, and the
 actual Send Money block/reconciliation UI using the maintained mock API.
 It does not establish live backend idempotency or cross-tab persistence.
+
+## Executed results — October 4, 2026
+
+The isolated [hosted run 37193994776](https://github.com/woahwhattheheck/RemitFlow-Frontend/actions/runs/37193994776)
+checked out exact product `fe08b70814f2a3e9994d457e60f487832680d389`, installed
+the unchanged lockfile, and used Node 24.21.0, Vitest 4.1.10, and Stellar SDK
+12.3.0. It executed only this ten-case file: nine passed, one failed. The failure
+was the exact-text selector omitting the warning-icon prefix from the existing
+`ErrorMessage` component. All crypto, collision, legacy state, strong retry, and
+accepted-legacy reconciliation cases passed. This run is not reported as green.
+Its original log is retained in [artifact 11299594080](https://github.com/woahwhattheheck/RemitFlow-Frontend/actions/runs/37193994776/artifacts/11299594080).
+
+The subsequent [composed source e6405a32](https://github.com/woahwhattheheck/RemitFlow-Frontend/commit/e6405a32e9c68df8281dcf17dbd5bcde068412d2)
+preserves the crypto repair and adds the separate wallet-admission contribution.
+It corrects only that assertion's displayed-text selector, retaining the
+no-transfer and unchanged-journal assertions. Its recorded focused rerun passes
+all ten cases in 4.13 seconds on Node 24.19.0 and Vitest 4.1.10. The same commit
+records a successful composed Vite production build, including the deferred SDK
+fallback chunk. These are separate local composition results, not a relabeling
+of the failed hosted run or an additional run in that workflow.
+
+No second hosted run was launched after the completed composition evidence
+became available. Existing full-suite failures recorded by that contributor
+remain outstanding; a passing focused file or production build does not make
+the full suite green. No live wallet, provider, settlement, or payment outcome
+was exercised.
